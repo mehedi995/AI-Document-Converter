@@ -6,7 +6,7 @@
              xmlns:behaviors="clr-namespace:AI.Document.Converter.Wpf.Behaviors"
              xmlns:converters="clr-namespace:AI.Document.Converter.Wpf.Converters"
              mc:Ignorable="d"
-             d:DesignHeight="480" d:DesignWidth="640">
+             d:DesignHeight="480" d:DesignWidth="720">
     <UserControl.Resources>
         <converters:FileSizeConverter x:Key="FileSizeConverter" />
     </UserControl.Resources>
@@ -18,12 +18,16 @@
             <RowDefinition Height="*" />
             <RowDefinition Height="8" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="4" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <StackPanel Grid.Row="0" Orientation="Horizontal">
             <Button Content="Import Files..." Padding="16,4" Command="{Binding ImportFilesCommand}" />
             <Button Content="Import Folder..." Padding="16,4" Margin="8,0,0,0"
                     Command="{Binding ImportFolderCommand}" />
+            <Button Content="Convert All" Padding="16,4" Margin="24,0,0,0"
+                    Command="{Binding ConvertAllCommand}" />
             <TextBlock Text="or drag and drop files/folders below" VerticalAlignment="Center" Margin="16,0,0,0"
                        FontStyle="Italic" Foreground="Gray" />
         </StackPanel>
@@ -32,16 +36,31 @@
             <ListView ItemsSource="{Binding ImportedFiles}" BorderThickness="0">
                 <ListView.View>
                     <GridView>
-                        <GridViewColumn Header="Name" Width="260" DisplayMemberBinding="{Binding FileName}" />
-                        <GridViewColumn Header="Type" Width="80" DisplayMemberBinding="{Binding FileType}" />
-                        <GridViewColumn Header="Size" Width="100"
+                        <GridViewColumn Header="Name" Width="180" DisplayMemberBinding="{Binding FileName}" />
+                        <GridViewColumn Header="Type" Width="60" DisplayMemberBinding="{Binding FileType}" />
+                        <GridViewColumn Header="Size" Width="80"
                                         DisplayMemberBinding="{Binding FileSizeBytes, Converter={StaticResource FileSizeConverter}}" />
-                        <GridViewColumn Header="Status" Width="100" DisplayMemberBinding="{Binding Status}" />
+                        <GridViewColumn Header="Status" Width="90" DisplayMemberBinding="{Binding Status}" />
+                        <GridViewColumn Header="Result" Width="300" DisplayMemberBinding="{Binding ResultSummary}" />
                     </GridView>
                 </ListView.View>
+                <ListView.ItemContainerStyle>
+                    <Style TargetType="ListViewItem">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsError}" Value="True">
+                                <Setter Property="Foreground" Value="Red" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </ListView.ItemContainerStyle>
             </ListView>
         </Border>
 
         <TextBlock Grid.Row="4" Text="{Binding StatusMessage}" TextWrapping="Wrap" Foreground="DarkOrange" />
+
+        <!-- FR-017/AC-013: always visible whenever token counts might be shown,
+             not conditional on a conversion having happened yet. -->
+        <TextBlock Grid.Row="6" TextWrapping="Wrap" FontStyle="Italic" Foreground="Gray" FontSize="11"
+                   Text="Token counts shown above are estimates and may vary from an AI provider's actual tokenizer." />
     </Grid>
 </UserControl>

@@ -48,3 +48,35 @@ relevant:
   satisfying FR-017 and CLAUDE.md Section 16.
 - Both encodings are pure Python (`tiktoken`) computations; no additional runtime
   dependency beyond what is already listed in `docs/01-BRD.md` Section 9.
+
+## Addendum (2026-08-24) — `tiktoken` is not offline out of the box
+
+Implementing Phase 6 surfaced two real problems, both fixed before release, not just
+noted:
+
+1. **`tiktoken` does not ship its vocabulary files.** By default it downloads
+   `o200k_base`/`cl100k_base` over HTTPS on first use and caches the result under
+   `%TEMP%/data-gym-cache`. On a genuinely offline target machine with no
+   pre-existing cache, that first token-estimation attempt would fail (or hang) — a
+   silent violation of NFR-001/002 that would only surface once a user actually
+   tried the feature, not during any earlier check. **Fix:** the two vocabulary
+   files were fetched once on a dev machine and checked into
+   `src/AI.Document.Converter.Python/tiktoken_cache/`; `tokenizer.py` sets
+   `TIKTOKEN_CACHE_DIR` to point at this bundled folder (resolved via
+   `sys._MEIPASS` when frozen) before `tiktoken` is ever imported, so it always
+   reads the local file and never attempts a network call. Verified by hiding the
+   OS-level cache directory entirely and confirming `tokenize` still succeeds
+   without recreating it.
+2. **PyInstaller's static analysis cannot see `tiktoken`'s encoding registrations.**
+   `tiktoken` discovers `o200k_base`/`cl100k_base` via `pkgutil` plugin scanning
+   over the `tiktoken_ext` namespace package, not a direct `import` statement — a
+   pattern invisible to PyInstaller's import graph. Without an explicit
+   `--hidden-import tiktoken_ext.openai_public`
+   (`scripts/build-python-engine.ps1`), the bundled exe fails at runtime with
+   `Unknown encoding o200k_base` despite `tiktoken` itself being bundled correctly.
+
+Both are now tracked as a permanent risk-register entry
+(`docs/18-RISK-ASSESSMENT.md` R-18) specifically because they are the kind of thing
+a routine `tiktoken` version bump could silently reintroduce (a new tiktoken release
+could change its cache-file hash or add a new namespace-plugin module) without any
+compile-time signal — only a real, offline-simulated test catches it.

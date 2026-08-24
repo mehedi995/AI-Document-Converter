@@ -18,6 +18,7 @@ import json
 import os
 import sys
 
+import tokenizer
 from extractors.common import ExtractionError
 from extractors import docx_extractor, pdf_extractor, pptx_extractor, xlsx_extractor
 
@@ -47,11 +48,14 @@ def handle_extract(payload):
     return extractor(file_path)
 
 
-# New operations are added here as later phases introduce them: Phase 6 adds
-# "tokenize".
+def handle_tokenize(payload):
+    return tokenizer.estimate(payload)
+
+
 OPERATION_HANDLERS = {
     "health_check": handle_health_check,
     "extract": handle_extract,
+    "tokenize": handle_tokenize,
 }
 
 

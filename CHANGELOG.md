@@ -55,6 +55,27 @@ All notable changes to this project are documented here. Format loosely follows
   deterministic re-conversion path — both pure, no disk I/O; actual file
   writing is Phase 10). 79 tests passing (69 unit + 10 integration, the latter
   including a real Extract→Generate pipeline test against the bundled engine).
+- 2026-08-24 (Gate 5, Phase 6 — Token Estimation): `tokenizer.py` (tiktoken
+  `o200k_base`/`cl100k_base`, ADR-003), `ITokenEstimator`, and a new
+  `ConversionService` (single-file UC-001 orchestration: extract → generate
+  Markdown → estimate tokens → write file — sequential, no batching yet, that's
+  Phase 8) wired into a real "Convert All" action on the Dashboard, showing both
+  tokenizer estimates, the reduction percentage, and a persistent "these are
+  estimates" disclaimer (FR-017/AC-013). 94 tests passing (82 unit + 12
+  integration, including a full real-pipeline conversion test).
+
+  Two more real, offline-breaking bugs found and fixed, both now permanent
+  risk-register entries (R-18) so a routine `tiktoken` upgrade doesn't quietly
+  reintroduce them:
+  - `tiktoken` downloads its vocabulary files over HTTPS on first use by
+    default — would fail/hang on a genuinely offline machine. Fixed by bundling
+    pre-fetched vocab files (`tiktoken_cache/`) and pointing
+    `TIKTOKEN_CACHE_DIR` at them before any `tiktoken` call.
+  - PyInstaller's static analysis can't see `tiktoken`'s plugin-discovered
+    encoding registration, causing `Unknown encoding o200k_base` at runtime.
+    Fixed with an explicit `--hidden-import tiktoken_ext.openai_public`.
+  Both verified by hiding the OS-level tiktoken cache entirely and confirming
+  tokenization still succeeds against the bundled files alone.
 
 Documentation progress ahead of the first release:
 - Gate 1 (2026-08-23): Business Analysis & Requirements —
@@ -76,8 +97,9 @@ Documentation progress ahead of the first release:
 ## [0.0.0] — Planned first tag
 
 Reserved for the first buildable commit of the solution skeleton
-(`docs/12-DEVELOPMENT-ROADMAP.md` Phase 1). The code now exists (see Unreleased
-above); no git repository has been initialized or tagged yet.
+(`docs/12-DEVELOPMENT-ROADMAP.md` Phase 1). Git was initialized 2026-08-24; no
+version tag has been cut yet — see the `master` branch commit history for
+per-phase commits in the meantime.
 
 ## [1.0.0] — Planned MVP release
 

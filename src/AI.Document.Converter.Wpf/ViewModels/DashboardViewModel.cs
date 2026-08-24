@@ -4,42 +4,52 @@ using System.Windows.Input;
 using AI.Document.Converter.Application.Interfaces;
 using AI.Document.Converter.Application.Models;
 using AI.Document.Converter.Application.Services;
+using AI.Document.Converter.Domain.Entities;
 using AI.Document.Converter.Wpf.Commands;
 using Microsoft.Win32;
 
 namespace AI.Document.Converter.Wpf.ViewModels;
 
-// UC-001/UC-002 import steps only (FR-001-005, NFR-013) - conversion itself is
-// Phase 3+ and deliberately not wired up here yet (no half-finished "Convert"
-// button, per docs/11-CODING-STANDARDS.md).
+// UC-001 (Phase 6): a real, working single-file conversion pipeline -
+// sequential, one file at a time. Bounded parallelism, live progress, and
+// cancellation are Phase 8's BatchService, built on top of this same
+// IConversionService rather than replacing it.
 public sealed class DashboardViewModel : ViewModelBase
 {
     private const string SupportedFilesFilter =
         "Supported Documents (*.pdf;*.docx;*.xlsx;*.pptx;*.txt)|*.pdf;*.docx;*.xlsx;*.pptx;*.txt|All files (*.*)|*.*";
 
     private readonly IImportService _importService;
+    private readonly IConversionService _conversionService;
     private readonly SettingsService _settingsService;
 
     private string? _statusMessage;
 
-    public DashboardViewModel(IImportService importService, SettingsService settingsService)
+    public DashboardViewModel(
+        IImportService importService,
+        IConversionService conversionService,
+        SettingsService settingsService)
     {
         _importService = importService;
+        _conversionService = conversionService;
         _settingsService = settingsService;
 
         ImportFilesCommand = new AsyncRelayCommand(ImportFilesAsync);
         ImportFolderCommand = new AsyncRelayCommand(ImportFolderAsync);
         DropFilesCommand = new AsyncRelayCommand<string[]>(paths =>
             ImportPathsAsync(ExpandDroppedPaths(paths ?? [])));
+        ConvertAllCommand = new AsyncRelayCommand(ConvertAllAsync, () => ImportedFiles.Count > 0);
     }
 
-    public ObservableCollection<FileImportItem> ImportedFiles { get; } = [];
+    public ObservableCollection<FileConversionViewModel> ImportedFiles { get; } = [];
 
     public ICommand ImportFilesCommand { get; }
 
     public ICommand ImportFolderCommand { get; }
 
     public ICommand DropFilesCommand { get; }
+
+    public ICommand ConvertAllCommand { get; }
 
     public string? StatusMessage
     {
@@ -108,13 +118,66 @@ public sealed class DashboardViewModel : ViewModelBase
 
         foreach (var item in result.AcceptedFiles)
         {
-            ImportedFiles.Add(item);
+            ImportedFiles.Add(new FileConversionViewModel(item));
         }
 
-        StatusMessage = BuildStatusMessage(result);
+        StatusMessage = BuildImportStatusMessage(result);
     }
 
-    private static string? BuildStatusMessage(ImportResult result)
+    private async Task ConvertAllAsync()
+    {
+        var settings = await _settingsService.GetSettingsAsync(CancellationToken.None);
+        var outputPathResolver = new OutputPathResolver();
+        var successCount = 0;
+        var failureCount = 0;
+
+        // Sequential on purpose (bounded parallelism is Phase 8, NFR-011) -
+        // one file's failure never stops the rest (BR-006).
+        foreach (var item in ImportedFiles)
+        {
+            item.Status = "Converting";
+            item.ResultSummary = null;
+            item.IsError = false;
+
+            var result = await _conversionService.ConvertAsync(
+                item.ImportItem.FilePath,
+                settings.OutputDirectory,
+                outputPathResolver,
+                CancellationToken.None);
+
+            if (result.Success)
+            {
+                successCount++;
+                item.Status = "Converted";
+                item.ResultSummary = BuildResultSummary(result);
+            }
+            else
+            {
+                failureCount++;
+                item.Status = "Failed";
+                item.IsError = true;
+                item.ResultSummary = result.ErrorMessage;
+            }
+        }
+
+        StatusMessage = $"Converted {successCount} file(s); {failureCount} failed.";
+    }
+
+    private static string BuildResultSummary(ConversionResult result)
+    {
+        var tokens = result.Tokens;
+        if (tokens is null)
+        {
+            return $"Saved to {result.OutputPath}";
+        }
+
+        return
+            $"Claude-style (est.): {tokens.OriginalClaudeStyle:N0} → {tokens.ConvertedClaudeStyle:N0} tokens | " +
+            $"GPT-4o-style (est.): {tokens.OriginalGpt4oStyle:N0} → {tokens.ConvertedGpt4oStyle:N0} tokens " +
+            $"({tokens.ReductionPercentGpt4oStyle:0.#}% reduction) → {Path.GetFileName(result.OutputPath)}";
+    }
+
+    private static string? BuildImportStatusMessage(ImportResult result)
     {
         var parts = new List<string>();
 

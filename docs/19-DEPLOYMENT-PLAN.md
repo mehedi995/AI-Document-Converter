@@ -17,7 +17,10 @@
    measured at ~5 seconds of self-extraction per launch once Phase 3's
    extraction libraries were bundled in, which is unaffordable given one
    process starts per file), from the pinned `requirements.txt` (R-04 in
-   `docs/18-RISK-ASSESSMENT.md`).
+   `docs/18-RISK-ASSESSMENT.md`). This step also bundles `tiktoken`'s
+   pre-fetched vocabulary files (`tiktoken_cache/`) and an explicit
+   `--hidden-import` for its plugin-discovered encoding module — both required
+   for token estimation to work offline (`docs/18-RISK-ASSESSMENT.md` R-18).
 3. Copy the built Python engine folder (`AIDocumentConverter.PythonEngine.exe`
    plus its `_internal/` dependency folder) into the WPF publish output's
    `PythonEngine/` subfolder (path referenced by `AppPaths.BundledPythonEnginePath`).

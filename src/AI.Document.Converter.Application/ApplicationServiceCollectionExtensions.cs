@@ -12,6 +12,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<IImportService, ImportService>();
         services.AddSingleton<IDocumentProcessorResolver, DocumentProcessorResolver>();
         services.AddSingleton<IMarkdownGenerator, MarkdownGenerator>();
+        services.AddSingleton<IConversionService, ConversionService>();
 
         // IOutputPathResolver is deliberately NOT registered here - it is
         // stateful per batch (docs/15-IMPLEMENTATION-PLAN.md Section 4), so

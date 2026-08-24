@@ -2,7 +2,7 @@
 
 **Project:** AI Document Converter
 **Status:** In Progress — Gate 5 (Production Coding) underway
-**Date:** 2026-08-24 (Phases 1–4 completed)
+**Date:** 2026-08-24 (Phases 1–4 and 6 completed)
 
 All tasks start as **TODO**. Status values: `TODO`, `IN PROGRESS`, `BLOCKED`, `DONE`.
 Priority: High / Medium / Low. Phase references `docs/12-DEVELOPMENT-ROADMAP.md`.
@@ -67,10 +67,10 @@ Priority: High / Medium / Low. Phase references `docs/12-DEVELOPMENT-ROADMAP.md`
 
 | Task ID | Description | Priority | Dependency | Status |
 |---|---|---|---|---|
-| TASK-035 | Implement `tokenizer.py` using tiktoken `o200k_base`/`cl100k_base` (ADR-003) | High | TASK-010 | TODO |
-| TASK-036 | Implement `ITokenEstimator` client calling the Python tokenizer (FR-014, FR-016) | High | TASK-035 | TODO |
-| TASK-037 | Implement Conversion Result UI: both estimates, reduction %, estimate disclaimer (FR-015, FR-017) | High | TASK-036, TASK-034 | TODO |
-| TASK-038 | Unit tests for `ITokenEstimator` (mocked) and disclaimer rendering | Medium | TASK-037 | TODO |
+| TASK-035 | Implement `tokenizer.py` using tiktoken `o200k_base`/`cl100k_base` (ADR-003) | High | TASK-010 | DONE |
+| TASK-036 | Implement `ITokenEstimator` client calling the Python tokenizer (FR-014, FR-016) | High | TASK-035 | DONE |
+| TASK-037 | Implement Conversion Result UI: both estimates, reduction %, estimate disclaimer (FR-015, FR-017) | High | TASK-036, TASK-034 | DONE |
+| TASK-038 | Unit tests for `ITokenEstimator` (mocked) and disclaimer rendering | Medium | TASK-037 | DONE |
 
 ## Phase 7 — Chunk Generation
 
@@ -134,7 +134,7 @@ Priority: High / Medium / Low. Phase references `docs/12-DEVELOPMENT-ROADMAP.md`
 ---
 
 *Gates 1–4 approved 2026-08-23; Gate 5 (Production Coding) approved 2026-08-24.
-Phases 1–4 (TASK-001–TASK-034) are complete and verified — see `CHANGELOG.md`.
-Phase 6 (Token Estimation) is next per `docs/12-DEVELOPMENT-ROADMAP.md` (there is
-no Phase 5 numbered task block — Metadata/FR-013 was folded into Phase 4's
-TASK-031, matching how `docs/15-IMPLEMENTATION-PLAN.md` groups them).*
+Phases 1–4 and 6 (TASK-001–TASK-038) are complete and verified — see
+`CHANGELOG.md`. Phase 6 also introduced `ConversionService` (single-file, no
+Phase 8 batching yet) since a real Convert action was needed to have anything
+to show token estimates for. Phase 7 (Chunk Generation) is next.*

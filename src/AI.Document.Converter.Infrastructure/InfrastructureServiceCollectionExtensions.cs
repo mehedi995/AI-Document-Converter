@@ -48,6 +48,9 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddSingleton<IDocumentProcessor, ExcelDocumentProcessor>();
         services.AddSingleton<IDocumentProcessor, PowerPointDocumentProcessor>();
 
+        services.AddSingleton<ITokenEstimator, TokenEstimator>();
+        services.AddSingleton<IMarkdownFileWriter, MarkdownFileWriter>();
+
         return services;
     }
 }

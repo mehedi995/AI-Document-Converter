@@ -34,9 +34,23 @@ try {
     python -m pip install --quiet -r requirements.txt
 
     Write-Host "Building AIDocumentConverter.PythonEngine (onedir)..."
+    # --add-data bundles tiktoken_cache/ as a data folder (not source code) -
+    # without it, tokenizer.py's TIKTOKEN_CACHE_DIR would point at a folder
+    # that doesn't exist in the built exe, and tiktoken would fall back to
+    # fetching over the network (see tokenizer.py's module docstring). The
+    # source side must be absolute: --specpath build means PyInstaller
+    # resolves a relative source against build\, not this script's CWD.
+    # tiktoken discovers its encodings (o200k_base, cl100k_base) via pkgutil
+    # plugin scanning over the tiktoken_ext namespace package, not a direct
+    # `import` statement - invisible to PyInstaller's static analysis without
+    # this explicit hidden-import, which fails at runtime with "Unknown
+    # encoding" despite tiktoken itself being bundled correctly.
+    $tiktokenCacheDir = Join-Path $pythonProjectDir "tiktoken_cache"
     python -m PyInstaller `
         --onedir `
         --name AIDocumentConverter.PythonEngine `
+        --add-data "$tiktokenCacheDir;tiktoken_cache" `
+        --hidden-import tiktoken_ext.openai_public `
         --distpath dist `
         --workpath build\pyinstaller-work `
         --specpath build `

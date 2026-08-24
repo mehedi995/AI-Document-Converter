@@ -1,0 +1,15 @@
+# tiktoken's vocabulary cache files (docs/adr/ADR-003-token-estimation-strategy.md
+# Addendum) are raw binary data named by a content hash - any line-ending
+# normalization on checkout would silently corrupt them and break offline token
+# estimation in a very confusing way (checksum mismatch, falls back to a network
+# fetch that then fails). Git's own binary-detection heuristic already treats them
+# as binary today, but this makes it explicit and permanent regardless of that
+# heuristic or anyone's local core.autocrlf setting.
+src/AI.Document.Converter.Python/tiktoken_cache/* binary
+
+# Generated sample fixtures (docs/16-TEST-STRATEGY.md Section 3) - same reasoning,
+# made explicit rather than relying on Git's heuristic.
+samples/*.docx binary
+samples/*.xlsx binary
+samples/*.pptx binary
+samples/*.pdf binary
