@@ -117,10 +117,10 @@ Priority: High / Medium / Low. Phase references `docs/12-DEVELOPMENT-ROADMAP.md`
 
 | Task ID | Description | Priority | Dependency | Status |
 |---|---|---|---|---|
-| TASK-060 | Execute full unit test suite per `docs/17-UNIT-TEST-PLAN.md` (Gate 4) | High | all prior test tasks | TODO |
-| TASK-061 | Execute performance benchmark matrix (`docs/03-SRS.md` Section 8) and record results | High | TASK-049 | TODO |
-| TASK-062 | Execute offline-compliance verification via network monitoring (US-023, AC-023) | High | TASK-059 | TODO |
-| TASK-063 | Triage and fix defects logged in `docs/22-BUG-TRACKER.md` (Gate 4) | High | TASK-060–TASK-062 | TODO |
+| TASK-060 | Execute full unit test suite per `docs/17-UNIT-TEST-PLAN.md` (Gate 4) | High | all prior test tasks | DONE |
+| TASK-061 | Execute performance benchmark matrix (`docs/03-SRS.md` Section 8) and record results | High | TASK-049 | DONE |
+| TASK-062 | Execute offline-compliance verification via network monitoring (US-023, AC-023) | High | TASK-059 | DONE |
+| TASK-063 | Triage and fix defects logged in `docs/22-BUG-TRACKER.md` (Gate 4) | High | TASK-060–TASK-062 | DONE (nothing open — see note) |
 
 ## Phase 12 — Release
 
@@ -134,12 +134,12 @@ Priority: High / Medium / Low. Phase references `docs/12-DEVELOPMENT-ROADMAP.md`
 ---
 
 *Gates 1–4 approved 2026-08-23; Gate 5 (Production Coding) approved 2026-08-24.
-Phases 1–4, 6, 7, 8, 9, and 10 (TASK-001–TASK-059) are complete and verified —
-see `CHANGELOG.md`. TASK-042 ("Chunk Settings screen") was satisfied by
-reusing the existing Settings screen's chunk size/overlap fields (Phase 1)
-plus a new "Generate Chunks" action on the Dashboard, rather than a duplicate
-screen. TASK-054 (SEC-004 temp-file cleanup) has no code to build — this app
-creates zero temporary files anywhere by design (see
+Phases 1–4 and 6–11 (TASK-001–TASK-063) are complete and verified — see
+`CHANGELOG.md`. TASK-042 ("Chunk Settings screen") was satisfied by reusing
+the existing Settings screen's chunk size/overlap fields (Phase 1) plus a new
+"Generate Chunks" action on the Dashboard, rather than a duplicate screen.
+TASK-054 (SEC-004 temp-file cleanup) has no code to build — this app creates
+zero temporary files anywhere by design (see
 `docs/adr/ADR-001-python-integration.md` Addendum and
 `docs/18-RISK-ASSESSMENT.md` R-19) — marked DONE as "confirmed not
 applicable," not skipped. TASK-056 (individual Markdown export) was already
@@ -147,6 +147,22 @@ satisfied by Phase 4/7's `IMarkdownFileWriter`/`IChunkFileWriter` — the
 individual `.md`/chunk files written during conversion already ARE FR-027's
 "individual Markdown files" export; Phase 10's actual new deliverable was the
 single-ZIP packaging (FR-028/046).
-Phase 11 (Testing) is next, including the Sprint 10 "Settings & Logging
-Hardening" cross-feature verification pass (AC-022/023/024) already folded
-into TASK-060–062.*
+
+Phase 11 (Testing) closed several real gaps found during the review itself,
+not just executed pre-existing tests: a dedicated End-to-End test suite
+(`tests/.../EndToEnd/FullPipelineTests.cs`) promised by
+`docs/16-TEST-STRATEGY.md` since Gate 4 but never actually built; AC-027's
+embedded-image placeholder requirement, correctly implemented for PPTX but
+never implemented at all for PDF/DOCX until now; a required password-protected
+PDF test fixture/scenario that didn't exist; a real `permissionDenied`
+category test (via a directory-as-file probe, no ACL manipulation needed);
+AC-022's restart guarantee, previously only verified against a mocked
+`IOptionsMonitor`, never the real `AddJsonFile`+`IOptionsMonitor` pipeline;
+and a genuine .NET Large Object Heap fragmentation issue in the performance
+benchmark harness itself (not the product) affecting the 100 MB case when
+chained with the suite's other large-allocation cases — see
+`docs/18-RISK-ASSESSMENT.md` R-20. 154 tests passing (104 unit + 41 routine
+integration + a separately-run 6-case performance suite, per
+`docs/03-SRS.md` Section 8).
+
+Phase 12 (Release) is next.*

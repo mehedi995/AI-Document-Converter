@@ -2,7 +2,10 @@ using System.Text.Json;
 using AI.Document.Converter.Domain.ValueObjects;
 using AI.Document.Converter.Infrastructure.Configuration;
 using AI.Document.Converter.UnitTests.TestSupport;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace AI.Document.Converter.UnitTests.Infrastructure.Configuration;
@@ -72,6 +75,37 @@ public class JsonSettingsStoreTests : IDisposable
         var loaded = await store.LoadAsync(CancellationToken.None);
 
         Assert.Same(expected, loaded);
+    }
+
+    // AC-022/US-022: the other JsonSettingsStore tests here all exercise the
+    // write side, or a read side backed by a static/mocked IOptionsMonitor -
+    // neither actually proves a setting survives a restart. This builds the
+    // exact same AddJsonFile + Configure<AppSettings> + IOptionsMonitor
+    // pipeline InfrastructureServiceCollectionExtensions wires up in the real
+    // app, as a brand-new container pointed at the file a prior "session"
+    // wrote to - the real mechanism a restart depends on, not a substitute
+    // for it.
+    [Fact]
+    public async Task SaveAsync_ThenFreshOptionsMonitorOverSameFile_SeesTheSavedValue_SimulatingRestart()
+    {
+        var store = new JsonSettingsStore(
+            _settingsFilePath,
+            new StaticOptionsMonitor<AppSettings>(new AppSettings()),
+            NullLogger<JsonSettingsStore>.Instance);
+
+        await store.SaveAsync(new AppSettings { OutputDirectory = @"C:\AfterRestart", MaxParallelism = 7 }, CancellationToken.None);
+
+        var configuration = new ConfigurationBuilder()
+            .AddJsonFile(_settingsFilePath, optional: true, reloadOnChange: false)
+            .Build();
+        var services = new ServiceCollection();
+        services.Configure<AppSettings>(configuration);
+        await using var provider = services.BuildServiceProvider();
+
+        var freshOptionsMonitor = provider.GetRequiredService<IOptionsMonitor<AppSettings>>();
+
+        Assert.Equal(@"C:\AfterRestart", freshOptionsMonitor.CurrentValue.OutputDirectory);
+        Assert.Equal(7, freshOptionsMonitor.CurrentValue.MaxParallelism);
     }
 
     public void Dispose()

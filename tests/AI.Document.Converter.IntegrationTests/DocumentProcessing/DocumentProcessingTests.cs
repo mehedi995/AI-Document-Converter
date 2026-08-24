@@ -138,6 +138,43 @@ public class DocumentProcessingTests
         Assert.Contains("Speaker notes for the sample slide.", notes.Text);
     }
 
+    // AC-027/FR-039: a real embedded image, driven through the real bundled
+    // engine per format - PPTX's detection already worked, but had never
+    // actually been verified against a real fixture either; PDF and DOCX's
+    // detection did not exist at all until Phase 11 closed this gap.
+    [Fact]
+    public async Task PdfDocumentProcessor_ExtractsImageSample_ProducesImagePlaceholder()
+    {
+        var processor = new PdfDocumentProcessor(_pythonEngineClient);
+
+        var document = await processor.ExtractAsync(SamplePath("image-sample.pdf"), CancellationToken.None);
+
+        Assert.Contains(
+            document.Sections.SelectMany(s => s.Blocks), b => b is ImagePlaceholderBlock);
+    }
+
+    [Fact]
+    public async Task DocxDocumentProcessor_ExtractsImageSample_ProducesImagePlaceholder()
+    {
+        var processor = new DocxDocumentProcessor(_pythonEngineClient);
+
+        var document = await processor.ExtractAsync(SamplePath("image-sample.docx"), CancellationToken.None);
+
+        Assert.Contains(
+            document.Sections.SelectMany(s => s.Blocks), b => b is ImagePlaceholderBlock);
+    }
+
+    [Fact]
+    public async Task PowerPointDocumentProcessor_ExtractsImageSample_ProducesImagePlaceholder()
+    {
+        var processor = new PowerPointDocumentProcessor(_pythonEngineClient);
+
+        var document = await processor.ExtractAsync(SamplePath("image-sample.pptx"), CancellationToken.None);
+
+        Assert.Contains(
+            document.Sections.SelectMany(s => s.Blocks), b => b is ImagePlaceholderBlock);
+    }
+
     [Fact]
     public async Task PdfDocumentProcessor_MissingFile_ThrowsFileNotFoundCategory()
     {
@@ -159,6 +196,33 @@ public class DocumentProcessingTests
         Assert.Equal(SupportedFileType.Txt, document.Metadata.FileType);
         var paragraph = Assert.IsType<ParagraphBlock>(document.Sections.Single().Blocks.Single());
         Assert.Contains("Sample Text Document", paragraph.Text);
+    }
+
+    [Fact]
+    public async Task TextDocumentProcessor_Utf8WithBom_StripsBomAndDecodesCorrectly()
+    {
+        // FR-040: sample.txt (generated without a BOM) already covers the
+        // "without BOM" half of this requirement - this covers the other
+        // half explicitly, since DetectEncoding's BOM-sniffing branch is
+        // otherwise never exercised by any existing fixture.
+        var path = Path.Combine(Path.GetTempPath(), $"bom-test-{Guid.NewGuid()}.txt");
+        var utf8Bom = new byte[] { 0xEF, 0xBB, 0xBF };
+        var content = "Text with a BOM."u8.ToArray();
+        File.WriteAllBytes(path, [.. utf8Bom, .. content]);
+
+        try
+        {
+            var processor = new TextDocumentProcessor();
+            var document = await processor.ExtractAsync(path, CancellationToken.None);
+
+            var paragraph = Assert.IsType<ParagraphBlock>(document.Sections.Single().Blocks.Single());
+            Assert.Equal("Text with a BOM.", paragraph.Text);
+            Assert.DoesNotContain('﻿', paragraph.Text);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]

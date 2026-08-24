@@ -19,6 +19,7 @@ from extractors.common import (
     check_file_accessible,
     converted_date_iso,
     file_created_date_iso,
+    image_placeholder_block,
     normalize_optional_text,
     unextractable_text_block,
 )
@@ -50,8 +51,16 @@ def _extract_page(page, page_number):
     tables = page.find_tables().tables
     table_regions = [pymupdf.Rect(t.bbox) for t in tables]
 
-    text_blocks = [b for b in page.get_text("dict")["blocks"] if b.get("type") == 0]
+    page_dict_blocks = page.get_text("dict")["blocks"]
+    text_blocks = [b for b in page_dict_blocks if b.get("type") == 0]
     text_blocks.sort(key=lambda b: (b["bbox"][1], b["bbox"][0]))
+
+    # FR-039/AC-027: an embedded image is its own "dict" block (type == 1),
+    # entirely separate from the text blocks above - without this, a page's
+    # image is silently dropped rather than marked, since pymupdf's
+    # get_text("dict") only ever returns text and image blocks, nothing
+    # in-between that would otherwise carry it through.
+    image_block_count = sum(1 for b in page_dict_blocks if b.get("type") == 1)
 
     heading = None
     body_paragraphs = []
@@ -73,6 +82,9 @@ def _extract_page(page, page_number):
     blocks = []
     if body_paragraphs:
         blocks.append({"type": "paragraph", "text": "\n".join(body_paragraphs)})
+
+    for _ in range(image_block_count):
+        blocks.append(image_placeholder_block())
 
     for table in tables:
         rows = table.extract()

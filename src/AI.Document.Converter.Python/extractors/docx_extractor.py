@@ -24,6 +24,7 @@ from extractors.common import (
     check_not_encrypted_ooxml,
     converted_date_iso,
     file_created_date_iso,
+    image_placeholder_block,
     normalize_optional_text,
     unextractable_text_block,
 )
@@ -67,6 +68,27 @@ def _paragraph_text_with_inline_links(paragraph):
     return "".join(parts).strip()
 
 
+def _run_has_image(run_element):
+    # w:drawing is the modern (DrawingML) inline-image element python-docx's
+    # own add_picture() produces; w:pict is the legacy VML form still seen
+    # in older/converted documents. Either one means "this run is an image."
+    return run_element.find(qn("w:drawing")) is not None or run_element.find(qn("w:pict")) is not None
+
+
+def _paragraph_image_count(paragraph):
+    # FR-039/AC-027: an inline image lives inside a w:r (or a w:r nested
+    # inside a w:hyperlink) as a sibling of w:t, not as a separate top-level
+    # body element - _iter_block_items only sees the containing Paragraph,
+    # so without this the image is silently dropped rather than marked.
+    count = 0
+    for child in paragraph._p:
+        if child.tag == qn("w:r") and _run_has_image(child):
+            count += 1
+        elif child.tag == qn("w:hyperlink"):
+            count += sum(1 for run in child if run.tag == qn("w:r") and _run_has_image(run))
+    return count
+
+
 def extract(file_path):
     check_file_accessible(file_path)
     check_not_encrypted_ooxml(file_path)
@@ -99,9 +121,12 @@ def extract(file_path):
         if isinstance(item, Paragraph):
             style_name = item.style.name if item.style else ""
             text = _paragraph_text_with_inline_links(item)
+            image_count = _paragraph_image_count(item)
 
             if style_name.startswith("Heading") or style_name == "Title":
                 start_new_section(text, _heading_level(style_name))
+                for _ in range(image_count):
+                    current_section["blocks"].append(image_placeholder_block())
                 continue
 
             if "List" in style_name:
@@ -111,12 +136,17 @@ def extract(file_path):
                     pending_list = {"type": "list", "isOrdered": is_ordered, "items": []}
                 if text:
                     pending_list["items"].append(text)
+                for _ in range(image_count):
+                    current_section["blocks"].append(image_placeholder_block())
                 continue
 
             flush_list()
 
             if text:
                 current_section["blocks"].append({"type": "paragraph", "text": text})
+
+            for _ in range(image_count):
+                current_section["blocks"].append(image_placeholder_block())
 
         elif isinstance(item, Table):
             flush_list()

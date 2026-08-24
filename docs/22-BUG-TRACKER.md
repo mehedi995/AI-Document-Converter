@@ -10,6 +10,17 @@ No bugs logged yet — production coding (Gate 5) has not started. This document
 the template and process definition; entries are added once implementation and
 testing begin (`docs/12-DEVELOPMENT-ROADMAP.md` Phase 11).
 
+**Note (2026-08-24, Phase 11 — TASK-063):** every real defect found during Gate 5
+so far was caught, diagnosed, and fixed inline while building the feature that
+surfaced it, rather than filed here first — see `CHANGELOG.md`'s per-phase entries
+and `docs/18-RISK-ASSESSMENT.md` R-17/R-18 for the full list (pymupdf stdout
+corruption, PyInstaller `--onefile` startup cost, tiktoken offline/plugin
+failures, an unsynchronized `OutputPathResolver`, a tiktoken cache race, and a
+wrong assumption about Windows' `PermissionError.winerror`). This log format
+remains the process for any **newly discovered** defect from this point forward
+(post-release, or found without an obvious immediate fix) — nothing is
+currently `OPEN`.
+
 ## Fields
 
 Every bug entry uses this shape:

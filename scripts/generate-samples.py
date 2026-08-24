@@ -5,6 +5,7 @@ Run from the repo root: python scripts/generate-samples.py
 Requires the packages in src/AI.Document.Converter.Python/requirements.txt.
 """
 
+import base64
 import os
 
 import pymupdf
@@ -17,6 +18,13 @@ from pptx import Presentation
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SAMPLES_DIR = os.path.join(REPO_ROOT, "samples")
+
+# A real (if trivial) 1x1 PNG - AC-027 needs a genuine embedded image, not
+# just bytes claiming to be one, since it's testing that each extractor's
+# own image-detection logic actually fires on real embedded-image markup.
+_TINY_PNG_BYTES = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+)
 
 
 def add_hyperlink(paragraph, url, text):
@@ -180,6 +188,66 @@ def generate_pdf():
     print(f"Wrote {path}")
 
 
+def generate_image_pdf():
+    # AC-027/FR-039: a dedicated fixture, separate from sample.pdf, so this
+    # scenario is isolated and doesn't force renumbering sample.pdf's
+    # existing section/page assertions.
+    path = os.path.join(SAMPLES_DIR, "image-sample.pdf")
+    document = pymupdf.open()
+    page = document.new_page()
+    page.insert_text((72, 72), "Text before the embedded image.", fontsize=11)
+    page.insert_image(pymupdf.Rect(72, 100, 172, 200), stream=_TINY_PNG_BYTES)
+    document.save(path)
+    print(f"Wrote {path}")
+
+
+def generate_image_docx():
+    path = os.path.join(SAMPLES_DIR, "image-sample.docx")
+    document = docx.Document()
+    document.add_paragraph("Text before the embedded image.")
+    image_paragraph = document.add_paragraph()
+    png_path = os.path.join(SAMPLES_DIR, "_tmp-image-fixture.png")
+    with open(png_path, "wb") as f:
+        f.write(_TINY_PNG_BYTES)
+    image_paragraph.add_run().add_picture(png_path)
+    os.remove(png_path)
+    document.save(path)
+    print(f"Wrote {path}")
+
+
+def generate_image_pptx():
+    path = os.path.join(SAMPLES_DIR, "image-sample.pptx")
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])  # blank layout
+    png_path = os.path.join(SAMPLES_DIR, "_tmp-image-fixture.png")
+    with open(png_path, "wb") as f:
+        f.write(_TINY_PNG_BYTES)
+    slide.shapes.add_picture(png_path, left=0, top=0)
+    os.remove(png_path)
+    presentation.save(path)
+    print(f"Wrote {path}")
+
+
+def generate_password_protected_pdf():
+    # docs/17-UNIT-TEST-PLAN.md's PDF Extraction plan requires a real
+    # password-protected fixture (BR-003) - checked in rather than generated
+    # inline by the C# test itself, same as every other sample here, since
+    # building it needs pymupdf (Python), not anything available from a
+    # C# xUnit test.
+    path = os.path.join(SAMPLES_DIR, "password-protected-sample.pdf")
+    document = pymupdf.open()
+    page = document.new_page()
+    page.insert_text((72, 72), "This content is behind a password.", fontsize=12)
+
+    document.save(
+        path,
+        encryption=pymupdf.PDF_ENCRYPT_AES_256,
+        user_pw="sample-password",
+        owner_pw="sample-owner-password",
+    )
+    print(f"Wrote {path}")
+
+
 if __name__ == "__main__":
     os.makedirs(SAMPLES_DIR, exist_ok=True)
     generate_txt()
@@ -187,3 +255,7 @@ if __name__ == "__main__":
     generate_xlsx()
     generate_pptx()
     generate_pdf()
+    generate_image_pdf()
+    generate_image_docx()
+    generate_image_pptx()
+    generate_password_protected_pdf()

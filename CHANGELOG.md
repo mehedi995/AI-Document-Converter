@@ -211,6 +211,57 @@ All notable changes to this project are documented here. Format loosely follows
   validation rejection, no-successful-files rejection, and a real ZIP built
   and re-opened to assert its actual internal layout and metadata JSON
   content).
+- 2026-08-24 (Gate 5, Phase 11 — Testing): a full verification pass against
+  the SRS and Acceptance Criteria that found and closed several real gaps,
+  not just a pre-existing-test run:
+  - `docs/16-TEST-STRATEGY.md` had promised a dedicated End-to-End suite
+    (`tests/.../EndToEnd/FullPipelineTests.cs`, Import → Convert → Chunk →
+    Export across all five formats through the real bundled engine) since
+    Gate 4 - it never actually existed until this phase.
+  - **AC-027/FR-039 (embedded image → placeholder) was only ever correctly
+    implemented for PPTX** - PDF and DOCX extraction silently dropped
+    embedded images entirely, with no test ever having caught it since no
+    fixture with a real embedded image existed for any format. Added real
+    image detection to `pdf_extractor.py` (pymupdf's image dict-blocks) and
+    `docx_extractor.py` (`w:drawing`/`w:pict` inside a paragraph's runs),
+    plus `image-sample.{pdf,docx,pptx}` fixtures and tests for all three.
+  - Added the password-protected-PDF test `docs/17-UNIT-TEST-PLAN.md`
+    required but never had a fixture for, and a real `permissionDenied`
+    category test (a directory-as-file `CreateFileW` probe - reliably
+    triggers `ERROR_ACCESS_DENIED` with no ACL manipulation needed).
+  - **AC-022 (settings survive a restart)** had only ever been verified
+    against a mocked `IOptionsMonitor` - added a test building the real
+    `AddJsonFile`+`Configure<AppSettings>`+`IOptionsMonitor` pipeline in a
+    fresh DI container over a file a prior "session" wrote to.
+  - **AC-023 (no outbound network calls)** verified two ways: a full static
+    audit of every `_logger.Log*`/`Log.*` call site and every Python module
+    for a network API (none found), and a live network-connection check
+    during a real five-format Import→Convert→Chunk→Export run - the bundled
+    Python engine subprocess made zero TCP/UDP connections of any kind.
+  - **AC-024 (no document content in logs)**: every log call site logs only
+    fixed text, file names/paths, categories, or an exception's own message;
+    the one call that echoes a Python subprocess's stderr is Debug-level,
+    filtered out entirely by the configured `MinimumLevel.Information()`.
+  - Measured the full `docs/03-SRS.md` Section 8 performance benchmark
+    matrix for real - every target holds with a wide margin (100 MB in
+    ~26-27s against a 3-minute target; a 100-file batch in ~76s against an
+    8-minute target). Investigating an intermittent failure on the 100 MB
+    case led to a real finding: chaining six large-allocation benchmark
+    cases in one .NET process fragments the Large Object Heap, which plain
+    `GC.Collect()` does not compact by default - fixed in the benchmark
+    harness with an explicit `GCSettings.LargeObjectHeapCompactionMode =
+    CompactOnce`. Confirmed this is a test-harness characteristic, not a
+    product defect: the bundled engine, the `tiktoken` cache integrity, and
+    the conversion pipeline were each individually verified correct, and the
+    100 MB case is completely reliable run in isolation. See
+    `docs/18-RISK-ASSESSMENT.md` R-20.
+  - Hardened `tokenizer.py`'s bundled-cache reader to verify the full
+    `expected_hash` (not just a byte count) before accepting a read, with a
+    brief retry - a stronger, more defensible check than what Phase 8 shipped,
+    even though it was not the root cause of the R-20 investigation above.
+
+  154 tests passing (104 unit + 41 integration in the routine suite, plus a
+  separately-run 6-case performance suite).
 - Gate 1 (2026-08-23): Business Analysis & Requirements —
   `docs/01-BRD.md` through `docs/06-ACCEPTANCE-CRITERIA.md`, including a
   Requirements Quality Review and the English-only MVP scope decision.

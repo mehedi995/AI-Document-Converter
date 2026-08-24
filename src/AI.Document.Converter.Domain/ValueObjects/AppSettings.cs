@@ -17,8 +17,9 @@ public sealed class AppSettings
     public string LogDirectory { get; init; } = string.Empty;
 
     // docs/07-TECHNICAL-ARCHITECTURE.md Section 3: protects against a hung Python
-    // subprocess; a timed-out file is reported as ConversionFailure (FR-029) and
-    // can be retried (FR-030).
+    // subprocess; a timed-out file is reported as PythonEngineFailure
+    // (PythonEngineClient.SendAsync - the timeout is itself a python-engine-level
+    // failure, not a distinct "conversion" one) and can be retried (FR-030).
     public int PythonEngineTimeoutSeconds { get; init; } = 120;
 
     public int MaxParallelism { get; init; } = 4;

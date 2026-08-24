@@ -26,6 +26,7 @@ interpreted source during development.
 import hashlib
 import os
 import sys
+import time
 
 
 def _bundled_cache_dir():
@@ -56,13 +57,43 @@ def _read_bundled_cache_file(blobpath, expected_hash=None):
     downloaded at runtime (NFR-001/002), there is no legitimate reason to
     ever verify/rewrite it here - a plain, read-only, single-process load
     removes the only path that could race.
+
+    Phase 11 addendum: the same "Error parsing line ..." signature resurfaced
+    under sustained load (the performance benchmark suite), reproducibly,
+    even with the rewrite path fully removed above - and a byte-count check
+    (an earlier attempt at this same fix, kept here as the changelog of what
+    was tried) did NOT catch it: the read consistently came back at the
+    file's exact expected size, but with wrong content, which is why the
+    length alone wasn't a strong enough check. Confirmed by hash: both the
+    source-checked-in and PyInstaller-bundled copies of this file match
+    tiktoken's own hardcoded expected_hash exactly, ruling out static
+    corruption - the wrong bytes are only ever observed transiently, at
+    read time (real-time antivirus content-scanning is the leading Windows
+    suspect, though the exact external cause can't be pinned down from
+    inside Python). expected_hash was already being passed in by
+    load_tiktoken_bpe/data_gym_to_mergeable_bpe_ranks and simply ignored
+    here - verifying against it (tiktoken's own check_hash) catches a
+    same-length-wrong-content read that a size check alone cannot, and a
+    brief retry resolves it.
     """
     cache_dir = os.environ["TIKTOKEN_CACHE_DIR"]
     cache_key = hashlib.sha1(blobpath.encode()).hexdigest()
     cache_path = os.path.join(cache_dir, cache_key)
+    expected_size = os.path.getsize(cache_path)
 
-    with open(cache_path, "rb") as f:
-        return f.read()
+    for attempt in range(5):
+        with open(cache_path, "rb") as f:
+            data = f.read()
+        if len(data) == expected_size and (
+            expected_hash is None or hashlib.sha256(data).hexdigest() == expected_hash
+        ):
+            return data
+        time.sleep(0.05 * (attempt + 1))
+
+    raise OSError(
+        f"Could not read a correct copy of the bundled tiktoken cache file "
+        f"'{cache_path}' after 5 attempts (size or hash mismatch each time)."
+    )
 
 
 tiktoken.load.read_file_cached = _read_bundled_cache_file

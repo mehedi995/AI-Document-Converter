@@ -1,3 +1,5 @@
+using AI.Document.Converter.Application.DTOs;
+using AI.Document.Converter.Domain.Enums;
 using AI.Document.Converter.Domain.ValueObjects;
 using AI.Document.Converter.Infrastructure.Python;
 using AI.Document.Converter.IntegrationTests.TestSupport;
@@ -26,5 +28,26 @@ public class PythonEngineClientTests
         var isHealthy = await client.CheckHealthAsync(CancellationToken.None);
 
         Assert.True(isHealthy);
+    }
+
+    // docs/17-UNIT-TEST-PLAN.md's Error Handling plan requires "Python
+    // engine failure" as one of the FR-029 categories exercised for real,
+    // not just referenced from a mocked TokenEstimator test.
+    [Fact]
+    public async Task SendAsync_ExecutableDoesNotExist_ReturnsPythonEngineFailure()
+    {
+        var settings = new AppSettings
+        {
+            PythonExecutablePath = Path.Combine(Path.GetTempPath(), $"no-such-engine-{Guid.NewGuid()}.exe")
+        };
+        var client = new PythonEngineClient(
+            new StaticOptionsMonitor<AppSettings>(settings),
+            NullLogger<PythonEngineClient>.Instance);
+
+        var response = await client.SendAsync<object>(
+            new PythonEngineRequest { Operation = "health_check" }, CancellationToken.None);
+
+        Assert.False(response.Success);
+        Assert.Equal(ErrorCategory.PythonEngineFailure, response.ErrorCategory);
     }
 }

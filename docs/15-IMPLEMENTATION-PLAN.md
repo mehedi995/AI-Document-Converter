@@ -159,6 +159,30 @@ contain no document content), using the features built in Phases 1–10. No new
 classes are anticipated; if the verification pass finds a gap, it is logged in
 `docs/22-BUG-TRACKER.md` and fixed as a normal defect.
 
+**Verified 2026-08-24 (Phase 11).**
+- **AC-022**: found a real gap — every existing settings test exercised either
+  the write side or a read side backed by a mocked/static `IOptionsMonitor`;
+  none proved a value survives an actual restart. Added
+  `JsonSettingsStoreTests.SaveAsync_ThenFreshOptionsMonitorOverSameFile_
+  SeesTheSavedValue_SimulatingRestart`, which builds the exact same
+  `AddJsonFile` + `Configure<AppSettings>` + `IOptionsMonitor` pipeline
+  `InfrastructureServiceCollectionExtensions` wires up in the real app, as a
+  brand-new DI container reading the file a prior "session" wrote to.
+- **AC-023**: see `docs/16-TEST-STRATEGY.md` Section 5 for the full verification
+  (static code audit + a live network-connection check during a real five-format
+  Import→Convert→Chunk→Export run).
+- **AC-024**: every `_logger.Log*`/`Log.*` call site in `src/` was audited by
+  hand - each one logs only a fixed message, a file name/path, a category, or
+  an exception's own message, never extracted document text (paragraph/cell/
+  slide content is never passed to a logging call anywhere). The one call
+  that echoes a Python subprocess's raw stderr
+  (`PythonEngineClient.SendAsync`) is `LogDebug`-level, and
+  `SerilogConfigurator` sets `MinimumLevel.Information()`, so it is filtered
+  out of the log file entirely by default - it would only ever carry a
+  library's own diagnostic text in any case (e.g. pymupdf's
+  `pymupdf_layout` notice), never document content, since `dispatch.py`
+  isolates stdout but never routes extracted content to stderr.
+
 ---
 
 *Next document: `docs/16-TEST-STRATEGY.md`*

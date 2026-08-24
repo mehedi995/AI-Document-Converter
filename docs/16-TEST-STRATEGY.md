@@ -54,6 +54,32 @@ network traffic (e.g., via a local proxy or OS-level connection monitor) and ass
 zero outbound connections were made. This is a Sprint 10 / Phase 11 activity
 (`docs/13-SPRINT-PLAN.md`).
 
+**Verified 2026-08-24 (Phase 11, TASK-062/AC-023).** Two complementary checks:
+
+- **Static**: `grep`-audited the entire codebase (`src/`, both .NET and Python)
+  for any network API (`HttpClient`, `WebRequest`, sockets, Python `requests`/
+  `urllib`) outside of `tiktoken_cache`/test fixtures. None found.
+- **Live**: ran `FullPipelineTests` (Import → Convert → Chunk → Export, all five
+  formats, real bundled Python engine) while polling `Get-NetTCPConnection`/
+  `Get-NetUDPEndpoint` for every relevant process. `AIDocumentConverter.
+  PythonEngine.exe` (the actual document-processing subprocess) never appeared
+  in any sample - zero TCP or UDP connections of any kind, for any of the five
+  conversions. The test-runner process itself (`testhost`) showed only
+  loopback (127.0.0.1) traffic to its own parent `dotnet` process - the
+  standard VSTest IPC channel, not application network activity.
+
+  One unrelated `dotnet.exe` process on the machine (a different PID, present
+  before the test started and using a different port pattern with no loopback
+  pairing to the test's own IPC) held an established connection to an Azure IP
+  over HTTPS throughout - identified as background IDE/tooling (VS Code's C#
+  language server or similar), not the application under test, since it: (a)
+  was a distinct process from both `testhost` and its parent, (b) was already
+  connected before the monitored operation began, and (c) has no code path in
+  this repository that could produce it. Flagged and investigated explicitly
+  rather than assumed, per the "always verify" pattern established in earlier
+  phases - this is exactly the kind of finding that must not be waved away
+  without checking.
+
 ---
 
 *Next document: `docs/17-UNIT-TEST-PLAN.md`*
