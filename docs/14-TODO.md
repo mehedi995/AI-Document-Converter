@@ -2,7 +2,7 @@
 
 **Project:** AI Document Converter
 **Status:** In Progress — Gate 5 (Production Coding) underway
-**Date:** 2026-08-24 (Phases 1–3 completed)
+**Date:** 2026-08-24 (Phases 1–4 completed)
 
 All tasks start as **TODO**. Status values: `TODO`, `IN PROGRESS`, `BLOCKED`, `DONE`.
 Priority: High / Medium / Low. Phase references `docs/12-DEVELOPMENT-ROADMAP.md`.
@@ -57,11 +57,11 @@ Priority: High / Medium / Low. Phase references `docs/12-DEVELOPMENT-ROADMAP.md`
 
 | Task ID | Description | Priority | Dependency | Status |
 |---|---|---|---|---|
-| TASK-030 | Implement `IMarkdownGenerator` (headings/lists/tables/links/source-location) (FR-012) | High | TASK-029 | TODO |
-| TASK-031 | Implement YAML front-matter generation, omitting absent `author` (FR-013) | High | TASK-030 | TODO |
-| TASK-032 | Implement output filename collision handling (FR-036) | Medium | TASK-030 | TODO |
-| TASK-033 | Implement re-conversion overwrite behavior (FR-044, BR-002) | Medium | TASK-030 | TODO |
-| TASK-034 | Unit tests for Markdown generator against `DocumentModel` fixtures | High | TASK-030–TASK-033 | TODO |
+| TASK-030 | Implement `IMarkdownGenerator` (headings/lists/tables/links/source-location) (FR-012) | High | TASK-029 | DONE |
+| TASK-031 | Implement YAML front-matter generation, omitting absent `author` (FR-013) | High | TASK-030 | DONE |
+| TASK-032 | Implement output filename collision handling (FR-036) | Medium | TASK-030 | DONE |
+| TASK-033 | Implement re-conversion overwrite behavior (FR-044, BR-002) | Medium | TASK-030 | DONE |
+| TASK-034 | Unit tests for Markdown generator against `DocumentModel` fixtures | High | TASK-030–TASK-033 | DONE |
 
 ## Phase 6 — Token Estimation
 
@@ -134,5 +134,7 @@ Priority: High / Medium / Low. Phase references `docs/12-DEVELOPMENT-ROADMAP.md`
 ---
 
 *Gates 1–4 approved 2026-08-23; Gate 5 (Production Coding) approved 2026-08-24.
-Phases 1–3 (TASK-001–TASK-029) are complete and verified — see `CHANGELOG.md`.
-Phase 4 (Markdown Conversion) is next.*
+Phases 1–4 (TASK-001–TASK-034) are complete and verified — see `CHANGELOG.md`.
+Phase 6 (Token Estimation) is next per `docs/12-DEVELOPMENT-ROADMAP.md` (there is
+no Phase 5 numbered task block — Metadata/FR-013 was folded into Phase 4's
+TASK-031, matching how `docs/15-IMPLEMENTATION-PLAN.md` groups them).*

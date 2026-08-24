@@ -46,6 +46,15 @@ All notable changes to this project are documented here. Format loosely follows
     one process per file. Switched to `--onedir` (~1.1s); see
     `docs/adr/ADR-001-python-integration.md` Addendum and `docs/18-RISK-ASSESSMENT.md`
     R-17.
+- 2026-08-24 (Gate 5, Phase 4 — Markdown Conversion): `MarkdownGenerator`
+  (headings, lists, tables with pipe/newline escaping, inline links,
+  image-placeholder and unextractable-text rendering, page/slide reference
+  lines), `FrontMatterBuilder` (FR-013, extended with `slides`/`sheets` fields
+  alongside `pages` since the data model tracks them separately), and
+  `OutputPathResolver` (FR-036 numeric-suffix collision handling, FR-044
+  deterministic re-conversion path — both pure, no disk I/O; actual file
+  writing is Phase 10). 79 tests passing (69 unit + 10 integration, the latter
+  including a real Extract→Generate pipeline test against the bundled engine).
 
 Documentation progress ahead of the first release:
 - Gate 1 (2026-08-23): Business Analysis & Requirements —
