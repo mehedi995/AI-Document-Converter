@@ -86,12 +86,12 @@ Priority: High / Medium / Low. Phase references `docs/12-DEVELOPMENT-ROADMAP.md`
 
 | Task ID | Description | Priority | Dependency | Status |
 |---|---|---|---|---|
-| TASK-044 | Implement `BatchService` with bounded parallelism (`SemaphoreSlim`) (FR-022, NFR-011) | High | TASK-028, TASK-030, TASK-039 | TODO |
-| TASK-045 | Implement `IProgress`-based progress reporting (FR-023) | High | TASK-044 | TODO |
-| TASK-046 | Implement Cancel command wired to per-file `CancellationToken`s (FR-037) | High | TASK-044 | TODO |
-| TASK-047 | Implement per-file multi-stage status tracking (Converted/Chunked/Exported) (FR-045) | Medium | TASK-044 | TODO |
-| TASK-048 | Verify UI responsiveness under batch load (FR-024, NFR-003) | High | TASK-045 | TODO |
-| TASK-049 | Integration tests: 100+ file batch, cancellation mid-batch | High | TASK-044–TASK-047 | TODO |
+| TASK-044 | Implement `BatchService` with bounded parallelism (`SemaphoreSlim`) (FR-022, NFR-011) | High | TASK-028, TASK-030, TASK-039 | DONE |
+| TASK-045 | Implement `IProgress`-based progress reporting (FR-023) | High | TASK-044 | DONE |
+| TASK-046 | Implement Cancel command wired to per-file `CancellationToken`s (FR-037) | High | TASK-044 | DONE |
+| TASK-047 | Implement per-file multi-stage status tracking (Converted/Chunked/Exported) (FR-045) | Medium | TASK-044 | DONE |
+| TASK-048 | Verify UI responsiveness under batch load (FR-024, NFR-003) | High | TASK-045 | DONE |
+| TASK-049 | Integration tests: 100+ file batch, cancellation mid-batch | High | TASK-044–TASK-047 | DONE |
 
 ## Phase 9 — Error Handling
 
@@ -134,8 +134,8 @@ Priority: High / Medium / Low. Phase references `docs/12-DEVELOPMENT-ROADMAP.md`
 ---
 
 *Gates 1–4 approved 2026-08-23; Gate 5 (Production Coding) approved 2026-08-24.
-Phases 1–4, 6, and 7 (TASK-001–TASK-043) are complete and verified — see
+Phases 1–4, 6, 7, and 8 (TASK-001–TASK-049) are complete and verified — see
 `CHANGELOG.md`. TASK-042 ("Chunk Settings screen") was satisfied by reusing
 the existing Settings screen's chunk size/overlap fields (Phase 1) plus a new
 "Generate Chunks" action on the Dashboard, rather than a duplicate screen.
-Phase 8 (Batch Processing) is next.*
+Phase 9 (Error Handling) is next.*

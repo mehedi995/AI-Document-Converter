@@ -14,6 +14,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<IMarkdownGenerator, MarkdownGenerator>();
         services.AddSingleton<IChunkGenerator, ChunkGenerator>();
         services.AddSingleton<IConversionService, ConversionService>();
+        services.AddSingleton<IBatchService, BatchService>();
 
         // IOutputPathResolver is deliberately NOT registered here - it is
         // stateful per batch (docs/15-IMPLEMENTATION-PLAN.md Section 4), so

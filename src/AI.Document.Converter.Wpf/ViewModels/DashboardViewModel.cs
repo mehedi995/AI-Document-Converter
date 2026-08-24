@@ -5,16 +5,18 @@ using AI.Document.Converter.Application.Interfaces;
 using AI.Document.Converter.Application.Models;
 using AI.Document.Converter.Application.Services;
 using AI.Document.Converter.Domain.Entities;
+using AI.Document.Converter.Domain.Enums;
 using AI.Document.Converter.Domain.ValueObjects;
 using AI.Document.Converter.Wpf.Commands;
 using Microsoft.Win32;
 
 namespace AI.Document.Converter.Wpf.ViewModels;
 
-// UC-001 (Phase 6): a real, working single-file conversion pipeline -
-// sequential, one file at a time. Bounded parallelism, live progress, and
-// cancellation are Phase 8's BatchService, built on top of this same
-// IConversionService rather than replacing it.
+// UC-001 (Phase 6/7): the single-file conversion/chunking pipeline lives in
+// IConversionService. Phase 8 adds IBatchService on top to run that pipeline
+// over many files with bounded parallelism (NFR-011), live per-file progress
+// (FR-023), and cancellation (FR-037) - it does not replace ConvertAsync/
+// GenerateChunksAsync, it orchestrates them.
 public sealed class DashboardViewModel : ViewModelBase
 {
     private const string SupportedFilesFilter =
@@ -22,26 +24,32 @@ public sealed class DashboardViewModel : ViewModelBase
 
     private readonly IImportService _importService;
     private readonly IConversionService _conversionService;
+    private readonly IBatchService _batchService;
     private readonly SettingsService _settingsService;
 
     private string? _statusMessage;
+    private bool _isBusy;
+    private CancellationTokenSource? _batchCancellationTokenSource;
 
     public DashboardViewModel(
         IImportService importService,
         IConversionService conversionService,
+        IBatchService batchService,
         SettingsService settingsService)
     {
         _importService = importService;
         _conversionService = conversionService;
+        _batchService = batchService;
         _settingsService = settingsService;
 
         ImportFilesCommand = new AsyncRelayCommand(ImportFilesAsync);
         ImportFolderCommand = new AsyncRelayCommand(ImportFolderAsync);
         DropFilesCommand = new AsyncRelayCommand<string[]>(paths =>
             ImportPathsAsync(ExpandDroppedPaths(paths ?? [])));
-        ConvertAllCommand = new AsyncRelayCommand(ConvertAllAsync, () => ImportedFiles.Count > 0);
+        ConvertAllCommand = new AsyncRelayCommand(ConvertAllAsync, () => !IsBusy && ImportedFiles.Count > 0);
         GenerateChunksCommand = new AsyncRelayCommand(
-            GenerateChunksAllAsync, () => ImportedFiles.Any(f => f.Status == "Converted"));
+            GenerateChunksAllAsync, () => !IsBusy && ImportedFiles.Any(f => f.Status == "Converted"));
+        CancelCommand = new RelayCommand(Cancel, () => IsBusy);
     }
 
     public ObservableCollection<FileConversionViewModel> ImportedFiles { get; } = [];
@@ -62,10 +70,26 @@ public sealed class DashboardViewModel : ViewModelBase
     // whatever is currently configured there.
     public ICommand GenerateChunksCommand { get; }
 
+    // FR-037: cancels whichever batch (Convert All or Generate Chunks) is
+    // currently running; disabled otherwise via CanExecute.
+    public ICommand CancelCommand { get; }
+
     public string? StatusMessage
     {
         get => _statusMessage;
         private set => SetProperty(ref _statusMessage, value);
+    }
+
+    public bool IsBusy
+    {
+        get => _isBusy;
+        private set
+        {
+            if (SetProperty(ref _isBusy, value))
+            {
+                CommandManager.InvalidateRequerySuggested();
+            }
+        }
     }
 
     private async Task ImportFilesAsync()
@@ -139,39 +163,51 @@ public sealed class DashboardViewModel : ViewModelBase
     {
         var settings = await _settingsService.GetSettingsAsync(CancellationToken.None);
         var outputPathResolver = new OutputPathResolver();
-        var successCount = 0;
-        var failureCount = 0;
 
-        // Sequential on purpose (bounded parallelism is Phase 8, NFR-011) -
-        // one file's failure never stops the rest (BR-006).
+        var itemsByPath = ImportedFiles.ToDictionary(f => f.ImportItem.FilePath);
         foreach (var item in ImportedFiles)
         {
-            item.Status = "Converting";
+            item.Status = "Queued";
             item.ResultSummary = null;
             item.IsError = false;
-
-            var result = await _conversionService.ConvertAsync(
-                item.ImportItem.FilePath,
-                settings.OutputDirectory,
-                outputPathResolver,
-                CancellationToken.None);
-
-            if (result.Success)
-            {
-                successCount++;
-                item.Status = "Converted";
-                item.ResultSummary = BuildResultSummary(result);
-            }
-            else
-            {
-                failureCount++;
-                item.Status = "Failed";
-                item.IsError = true;
-                item.ResultSummary = result.ErrorMessage;
-            }
         }
 
-        StatusMessage = $"Converted {successCount} file(s); {failureCount} failed.";
+        await RunBatchAsync(
+            ImportedFiles.Select(f => f.ImportItem.FilePath).ToList(),
+            (filePath, token) => _conversionService.ConvertAsync(
+                filePath, settings.OutputDirectory, outputPathResolver, token),
+            settings.MaxParallelism,
+            update =>
+            {
+                // FR-023: with real parallelism, several files are "in
+                // progress" at once, so each row tracks its own Started/
+                // Completed transition rather than a single "current file".
+                if (!itemsByPath.TryGetValue(update.FilePath, out var item))
+                {
+                    return;
+                }
+
+                switch (update.State)
+                {
+                    case BatchItemState.Started:
+                        item.Status = "Converting";
+                        break;
+                    case BatchItemState.Cancelled:
+                        item.Status = "Cancelled";
+                        break;
+                    case BatchItemState.Completed when update.Result!.Success:
+                        item.Status = "Converted";
+                        item.ResultSummary = BuildResultSummary(update.Result);
+                        break;
+                    case BatchItemState.Completed:
+                        item.Status = "Failed";
+                        item.IsError = true;
+                        item.ResultSummary = update.Result!.ErrorMessage;
+                        break;
+                }
+            },
+            summary => $"Converted {summary.SuccessCount} file(s); {summary.FailureCount} failed." +
+                       (summary.ProcessedFiles < summary.TotalFiles ? " (cancelled)" : string.Empty));
     }
 
     private async Task GenerateChunksAllAsync()
@@ -182,30 +218,84 @@ public sealed class DashboardViewModel : ViewModelBase
             ChunkSizeTokens = settings.ChunkSizeTokens,
             OverlapTokens = settings.ChunkOverlapTokens
         };
-        var chunkedCount = 0;
-        var failureCount = 0;
 
         // Only files that already converted successfully - chunking a file
         // that never produced valid content wouldn't mean anything.
-        foreach (var item in ImportedFiles.Where(f => f.Status == "Converted"))
+        var itemsByPath = ImportedFiles
+            .Where(f => f.Status == "Converted")
+            .ToDictionary(f => f.ImportItem.FilePath);
+
+        await RunBatchAsync(
+            itemsByPath.Keys.ToList(),
+            (filePath, token) => _conversionService.GenerateChunksAsync(
+                filePath, settings.OutputDirectory, chunkOptions, token),
+            settings.MaxParallelism,
+            update =>
+            {
+                // FR-045: Chunked/Failed here is this file's chunking-stage
+                // status, distinct from the "Converted" status Convert All
+                // already gave it - a file can be Converted but Failed at
+                // the chunking stage, or vice versa on a later run.
+                if (!itemsByPath.TryGetValue(update.FilePath, out var item))
+                {
+                    return;
+                }
+
+                switch (update.State)
+                {
+                    case BatchItemState.Started:
+                        item.Status = "Chunking";
+                        break;
+                    case BatchItemState.Cancelled:
+                        item.Status = "Cancelled";
+                        break;
+                    case BatchItemState.Completed when update.Result!.Success:
+                        item.Status = "Chunked";
+                        item.ResultSummary += $" | {update.Result.ChunkCount} chunk(s)";
+                        break;
+                    case BatchItemState.Completed:
+                        item.Status = "Failed";
+                        item.IsError = true;
+                        item.ResultSummary += $" | Chunking failed: {update.Result!.ErrorMessage}";
+                        break;
+                }
+            },
+            summary => $"Generated chunks for {summary.SuccessCount} file(s); {summary.FailureCount} failed." +
+                       (summary.ProcessedFiles < summary.TotalFiles ? " (cancelled)" : string.Empty));
+    }
+
+    // Shared by Convert All and Generate Chunks (FR-022-025/FR-037/NFR-011) so
+    // both go through the same IsBusy/cancellation/progress plumbing instead
+    // of duplicating it.
+    private async Task RunBatchAsync(
+        IReadOnlyList<string> filePaths,
+        Func<string, CancellationToken, Task<ConversionResult>> operation,
+        int maxParallelism,
+        Action<BatchProgressUpdate> onProgress,
+        Func<BatchSummary, string> buildStatusMessage)
+    {
+        IsBusy = true;
+        _batchCancellationTokenSource = new CancellationTokenSource();
+
+        try
         {
-            var result = await _conversionService.GenerateChunksAsync(
-                item.ImportItem.FilePath, settings.OutputDirectory, chunkOptions, CancellationToken.None);
+            var progress = new Progress<BatchProgressUpdate>(onProgress);
+            var summary = await _batchService.RunAsync(
+                filePaths, operation, maxParallelism, progress, _batchCancellationTokenSource.Token);
 
-            if (result.Success)
-            {
-                chunkedCount++;
-                item.ResultSummary += $" | {result.ChunkCount} chunk(s)";
-            }
-            else
-            {
-                failureCount++;
-                item.IsError = true;
-                item.ResultSummary += $" | Chunking failed: {result.ErrorMessage}";
-            }
+            StatusMessage = buildStatusMessage(summary);
         }
+        finally
+        {
+            _batchCancellationTokenSource?.Dispose();
+            _batchCancellationTokenSource = null;
+            IsBusy = false;
+        }
+    }
 
-        StatusMessage = $"Generated chunks for {chunkedCount} file(s); {failureCount} failed.";
+    private void Cancel()
+    {
+        _batchCancellationTokenSource?.Cancel();
     }
 
     private static string BuildResultSummary(ConversionResult result)

@@ -23,6 +23,7 @@ and never attempts a network call, whether running as a frozen exe or as
 interpreted source during development.
 """
 
+import hashlib
 import os
 import sys
 
@@ -38,6 +39,33 @@ def _bundled_cache_dir():
 os.environ.setdefault("TIKTOKEN_CACHE_DIR", _bundled_cache_dir())
 
 import tiktoken  # noqa: E402 - must follow the TIKTOKEN_CACHE_DIR setup above
+import tiktoken.load  # noqa: E402 - same as above
+
+
+def _read_bundled_cache_file(blobpath, expected_hash=None):
+    """Replaces tiktoken's own read_file_cached (Phase 8 finding).
+
+    ADR-001 launches many of these processes concurrently for a batch
+    (NFR-011). tiktoken's default read_file_cached, on a hash mismatch,
+    deletes the cache file and rewrites it (read.py: os.remove + tmp-file +
+    os.rename) - under real concurrent launches this created a window where
+    one process's rewrite raced another's read of the same bundled cache
+    file, corrupting that read ("Error parsing line ..." from
+    load_tiktoken_bpe). Since every vocabulary file this app needs is
+    bundled and checked into tiktoken_cache/ ahead of time and never
+    downloaded at runtime (NFR-001/002), there is no legitimate reason to
+    ever verify/rewrite it here - a plain, read-only, single-process load
+    removes the only path that could race.
+    """
+    cache_dir = os.environ["TIKTOKEN_CACHE_DIR"]
+    cache_key = hashlib.sha1(blobpath.encode()).hexdigest()
+    cache_path = os.path.join(cache_dir, cache_key)
+
+    with open(cache_path, "rb") as f:
+        return f.read()
+
+
+tiktoken.load.read_file_cached = _read_bundled_cache_file
 
 _gpt4o_encoding = None
 _claude_proxy_encoding = None

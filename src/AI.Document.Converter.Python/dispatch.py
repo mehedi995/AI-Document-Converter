@@ -13,20 +13,25 @@ either language's native naming convention:
 """
 
 import contextlib
+import importlib
 import io
 import json
 import os
 import sys
 
-import tokenizer
 from extractors.common import ExtractionError
-from extractors import docx_extractor, pdf_extractor, pptx_extractor, xlsx_extractor
 
-EXTRACTORS_BY_FORMAT = {
-    "pdf": pdf_extractor.extract,
-    "docx": docx_extractor.extract,
-    "xlsx": xlsx_extractor.extract,
-    "pptx": pptx_extractor.extract,
+# Each entry is (module name, attribute name) rather than an imported function
+# reference - ADR-001 starts one process per request, so a bare "tokenize" or
+# "health_check" call has no business paying to import all four extraction
+# libraries (pymupdf/python-docx/openpyxl/python-pptx measured at ~86MB
+# combined) just because they're module-level imports. Only the one extractor
+# a given "extract" request actually needs gets imported, on demand.
+EXTRACTOR_MODULES_BY_FORMAT = {
+    "pdf": ("extractors.pdf_extractor", "extract"),
+    "docx": ("extractors.docx_extractor", "extract"),
+    "xlsx": ("extractors.xlsx_extractor", "extract"),
+    "pptx": ("extractors.pptx_extractor", "extract"),
 }
 
 
@@ -38,21 +43,27 @@ def handle_extract(payload):
     file_format = payload.get("format")
     file_path = payload.get("filePath")
 
-    extractor = EXTRACTORS_BY_FORMAT.get(file_format)
-    if extractor is None:
+    module_and_attr = EXTRACTOR_MODULES_BY_FORMAT.get(file_format)
+    if module_and_attr is None:
         raise ExtractionError("unsupportedFile", f"No extractor registered for format: {file_format}")
 
     if not os.path.exists(file_path):
         raise ExtractionError("fileNotFound", f"File not found: {file_path}")
 
+    module_name, attr_name = module_and_attr
+    extractor = getattr(importlib.import_module(module_name), attr_name)
     return extractor(file_path)
 
 
 def handle_tokenize(payload):
+    import tokenizer
+
     return tokenizer.estimate(payload)
 
 
 def handle_count_tokens(payload):
+    import tokenizer
+
     return tokenizer.count_batch(payload)
 
 

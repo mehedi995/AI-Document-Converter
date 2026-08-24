@@ -12,28 +12,34 @@ public sealed class OutputPathResolver : IOutputPathResolver
     // (FR-004), so there is no nested structure to mirror - the numeric
     // suffix is the only strategy that actually applies yet.
     private readonly Dictionary<string, string> _assignedPaths = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _lock = new();
 
+    // Phase 8 (NFR-011) shares a single resolver instance across a batch's
+    // concurrently running files, so mutating _assignedPaths must be locked.
     public string ResolveMarkdownOutputPath(string sourceFilePath, string outputDirectory)
     {
-        var baseName = Path.GetFileNameWithoutExtension(sourceFilePath);
-        var candidate = Path.Combine(outputDirectory, baseName + ".md");
-
-        if (IsFreeFor(candidate, sourceFilePath))
+        lock (_lock)
         {
-            _assignedPaths[candidate] = sourceFilePath;
-            return candidate;
+            var baseName = Path.GetFileNameWithoutExtension(sourceFilePath);
+            var candidate = Path.Combine(outputDirectory, baseName + ".md");
+
+            if (IsFreeFor(candidate, sourceFilePath))
+            {
+                _assignedPaths[candidate] = sourceFilePath;
+                return candidate;
+            }
+
+            var suffix = 2;
+            string suffixed;
+            do
+            {
+                suffixed = Path.Combine(outputDirectory, $"{baseName} ({suffix}).md");
+                suffix++;
+            } while (!IsFreeFor(suffixed, sourceFilePath));
+
+            _assignedPaths[suffixed] = sourceFilePath;
+            return suffixed;
         }
-
-        var suffix = 2;
-        string suffixed;
-        do
-        {
-            suffixed = Path.Combine(outputDirectory, $"{baseName} ({suffix}).md");
-            suffix++;
-        } while (!IsFreeFor(suffixed, sourceFilePath));
-
-        _assignedPaths[suffixed] = sourceFilePath;
-        return suffixed;
     }
 
     private bool IsFreeFor(string candidatePath, string sourceFilePath) =>

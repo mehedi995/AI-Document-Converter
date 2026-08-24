@@ -30,6 +30,8 @@
                     Command="{Binding ConvertAllCommand}" />
             <Button Content="Generate Chunks" Padding="16,4" Margin="8,0,0,0"
                     Command="{Binding GenerateChunksCommand}" />
+            <Button Content="Cancel" Padding="16,4" Margin="8,0,0,0"
+                    Command="{Binding CancelCommand}" />
             <TextBlock Text="or drag and drop files/folders below" VerticalAlignment="Center" Margin="16,0,0,0"
                        FontStyle="Italic" Foreground="Gray" />
         </StackPanel>

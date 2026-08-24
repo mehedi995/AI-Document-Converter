@@ -6,9 +6,10 @@ namespace AI.Document.Converter.Wpf.ViewModels;
 // Wraps the immutable FileImportItem (Phase 2) with the mutable state a
 // conversion run needs to show live - exactly the evolution flagged as
 // expected back when FileImportItem.Status was introduced as a single-value
-// placeholder enum. Phase 8 (Batch Processing) will extend Status further
-// with live per-file progress; this phase only needs Ready/Converting/
-// Converted/Failed.
+// placeholder enum. FR-045 (Phase 8): Status tracks each file's pipeline
+// stage independently - Ready/Queued/Converting/Converted/Chunking/Chunked/
+// Cancelled/Failed - rather than collapsing Convert and Generate Chunks into
+// one indistinguishable "done" state.
 public sealed class FileConversionViewModel : ViewModelBase
 {
     private string _status = "Ready";

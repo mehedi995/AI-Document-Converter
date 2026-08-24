@@ -45,12 +45,24 @@ try {
     # `import` statement - invisible to PyInstaller's static analysis without
     # this explicit hidden-import, which fails at runtime with "Unknown
     # encoding" despite tiktoken itself being bundled correctly.
+    #
+    # dispatch.py imports each of the four extractor modules lazily via
+    # importlib.import_module(), on demand per request, rather than eagerly
+    # at module load (NFR-011: measured at ~86MB of process memory otherwise
+    # paid by every single subprocess, including ones that only tokenize or
+    # health-check). A dynamic importlib string is likewise invisible to
+    # PyInstaller's static analysis, so each module needs its own
+    # hidden-import too.
     $tiktokenCacheDir = Join-Path $pythonProjectDir "tiktoken_cache"
     python -m PyInstaller `
         --onedir `
         --name AIDocumentConverter.PythonEngine `
         --add-data "$tiktokenCacheDir;tiktoken_cache" `
         --hidden-import tiktoken_ext.openai_public `
+        --hidden-import extractors.pdf_extractor `
+        --hidden-import extractors.docx_extractor `
+        --hidden-import extractors.xlsx_extractor `
+        --hidden-import extractors.pptx_extractor `
         --distpath dist `
         --workpath build\pyinstaller-work `
         --specpath build `

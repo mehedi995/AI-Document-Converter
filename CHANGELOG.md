@@ -91,6 +91,44 @@ All notable changes to this project are documented here. Format loosely follows
   reuse the existing Settings screen fields rather than a duplicate screen.
   103 tests passing (90 unit + 13 integration, including a real multi-chunk
   generation test against the bundled engine).
+- 2026-08-24 (Gate 5, Phase 8 — Batch Processing): `BatchService` (FR-022,
+  NFR-011) running the same single-file `ConvertAsync`/`GenerateChunksAsync`
+  pipeline over many files with a `SemaphoreSlim`-bounded degree of
+  parallelism, per-file `IProgress<BatchProgressUpdate>` reporting
+  (Started/Completed/Cancelled, FR-023), and a Dashboard Cancel command
+  wired to a per-batch `CancellationToken` (FR-037). `DashboardViewModel`
+  now tracks each file's pipeline stage independently rather than one
+  collapsed status — Queued/Converting/Converted for Convert All and
+  Chunking/Chunked for Generate Chunks, each able to fail on its own stage
+  (FR-045). 113 tests passing (98 unit + 15 integration, including a real
+  120-file batch and a real mid-batch cancellation against the bundled
+  Python engine).
+
+  Two concurrency bugs found and fixed while making parallelism real rather
+  than assumed safe:
+  - `OutputPathResolver` is intentionally shared across a whole batch to
+    resolve filename collisions across all its files, but its collision map
+    was not synchronized — concurrent files could resolve to the same output
+    path. Added a lock around every read/write of that map.
+  - `tiktoken`'s own cache loader deletes and rewrites a cache file on a hash
+    mismatch; under NFR-011's real concurrent subprocess launches, one
+    process's rewrite could race another's read of the same bundled
+    vocabulary file, corrupting that read. Since every vocabulary file this
+    app needs is bundled ahead of time and never fetched at runtime
+    (NFR-001/002), replaced tiktoken's read-verify-rewrite loader with a
+    plain read-only load, removing the only path that could race. Also
+    switched `dispatch.py`'s extractor imports to on-demand (`importlib`)
+    rather than eager module-load imports, so a batch's concurrent
+    tokenize-only subprocesses no longer each pay to import all four
+    extraction libraries (~86MB) they don't use.
+
+  Verified by running the built app (Dashboard renders correctly, Convert
+  All/Generate Chunks/Cancel show the correct enabled/disabled state) and by
+  confirming no blocking (`.Wait()`/`Task.Result`/`GetAwaiter().GetResult()`)
+  calls exist anywhere in the WPF layer. Driving the native file-import
+  dialog end-to-end was not automated in this pass — no UI-automation
+  harness exists yet in this repo; see `docs/18-RISK-ASSESSMENT.md` if one
+  is added later.
 - Gate 1 (2026-08-23): Business Analysis & Requirements —
   `docs/01-BRD.md` through `docs/06-ACCEPTANCE-CRITERIA.md`, including a
   Requirements Quality Review and the English-only MVP scope decision.

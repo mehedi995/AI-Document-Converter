@@ -23,6 +23,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- These tests launch real Python subprocesses (ADR-001); running
+         collections in parallel makes them fight over CPU and can trip
+         PythonEngineTimeoutSeconds under load, so they run sequentially. -->
+    <None Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\AI.Document.Converter.Application\AI.Document.Converter.Application.csproj" />
     <ProjectReference Include="..\..\src\AI.Document.Converter.Infrastructure\AI.Document.Converter.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\AI.Document.Converter.Domain\AI.Document.Converter.Domain.csproj" />
