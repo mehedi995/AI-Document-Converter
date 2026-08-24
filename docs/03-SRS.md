@@ -80,6 +80,7 @@
 | FR-027 | The system shall export converted output as individual Markdown files. |
 | FR-028 | For a batch, the system shall export all converted output as a **single ZIP package for the whole batch**, containing per-document subfolders under `markdown/`, `chunks/`, and `metadata/` (exact layout finalized in System Design). |
 | FR-044 | On re-conversion of the same source file to the same output location, the system shall overwrite the previously generated output. This is documented, expected behavior (see BR-002), not an error condition. |
+| FR-046 | The ZIP package's `metadata/` folder (FR-028) shall contain one JSON file per successfully converted document (named after the source file), recording the conversion-result data that is otherwise shown only transiently in the UI: source file name, file type, created/converted dates, page/slide/sheet counts, author (when present), token estimates and reduction percentage, and chunk count (when chunking was requested). This is distinct from the front matter already embedded in the `markdown/`/`chunks/` files (FR-013), which a `metadata/` file does not duplicate beyond the fields above needed to make it self-contained. |
 
 ### Error Handling
 
@@ -226,6 +227,17 @@ requirements (SEC-005, SEC-006), 1 new business rule (BR-007), an explicit perfo
 benchmark matrix, and clarifying edits to FR-004, FR-014–FR-018, FR-028, FR-032,
 SEC-004, and BR-002. See `docs/22-BUG-TRACKER.md` (future) / this note for traceability
 until `docs/21-REQUIREMENT-TRACEABILITY.md` is produced.
+
+## 12. Revision Note (2026-08-24)
+
+`docs/21-REQUIREMENT-TRACEABILITY.md` referenced FR-046 (→ US-021 → AC-021 →
+TASK-057) from the moment it was written, but the requirement itself was never
+actually added to this document - discovered as a genuine documentation gap
+while starting Phase 10 (Export). Added above under Section "Conversion
+Results & Export," resolving what the `metadata/` folder in FR-028's ZIP
+layout is supposed to contain (a per-document JSON of conversion-result data,
+confirmed with the user rather than assumed, since it shapes a concrete
+exported file format).
 
 ---
 

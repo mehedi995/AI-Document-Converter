@@ -108,10 +108,10 @@ Priority: High / Medium / Low. Phase references `docs/12-DEVELOPMENT-ROADMAP.md`
 
 | Task ID | Description | Priority | Dependency | Status |
 |---|---|---|---|---|
-| TASK-056 | Implement `ExportService`: individual Markdown file export (FR-027) | High | TASK-041 | TODO |
-| TASK-057 | Implement ZIP export, one ZIP per batch, per-document subfolders (FR-028, FR-046) | High | TASK-056 | TODO |
-| TASK-058 | Implement export path validation (SEC-002) | High | TASK-056 | TODO |
-| TASK-059 | Unit/integration tests for export incl. path validation rejection | High | TASK-057, TASK-058 | TODO |
+| TASK-056 | Implement `ExportService`: individual Markdown file export (FR-027) | High | TASK-041 | DONE (already satisfied — see note) |
+| TASK-057 | Implement ZIP export, one ZIP per batch, per-document subfolders (FR-028, FR-046) | High | TASK-056 | DONE |
+| TASK-058 | Implement export path validation (SEC-002) | High | TASK-056 | DONE |
+| TASK-059 | Unit/integration tests for export incl. path validation rejection | High | TASK-057, TASK-058 | DONE |
 
 ## Phase 11 — Testing
 
@@ -134,12 +134,19 @@ Priority: High / Medium / Low. Phase references `docs/12-DEVELOPMENT-ROADMAP.md`
 ---
 
 *Gates 1–4 approved 2026-08-23; Gate 5 (Production Coding) approved 2026-08-24.
-Phases 1–4, 6, 7, 8, and 9 (TASK-001–TASK-055) are complete and verified — see
-`CHANGELOG.md`. TASK-042 ("Chunk Settings screen") was satisfied by reusing
-the existing Settings screen's chunk size/overlap fields (Phase 1) plus a new
-"Generate Chunks" action on the Dashboard, rather than a duplicate screen.
-TASK-054 (SEC-004 temp-file cleanup) has no code to build — this app creates
-zero temporary files anywhere by design (see `docs/adr/ADR-001-python-integration.md`
-Addendum and `docs/18-RISK-ASSESSMENT.md` R-19) — marked DONE as "confirmed
-not applicable," not skipped.
-Phase 10 (Export) is next.*
+Phases 1–4, 6, 7, 8, 9, and 10 (TASK-001–TASK-059) are complete and verified —
+see `CHANGELOG.md`. TASK-042 ("Chunk Settings screen") was satisfied by
+reusing the existing Settings screen's chunk size/overlap fields (Phase 1)
+plus a new "Generate Chunks" action on the Dashboard, rather than a duplicate
+screen. TASK-054 (SEC-004 temp-file cleanup) has no code to build — this app
+creates zero temporary files anywhere by design (see
+`docs/adr/ADR-001-python-integration.md` Addendum and
+`docs/18-RISK-ASSESSMENT.md` R-19) — marked DONE as "confirmed not
+applicable," not skipped. TASK-056 (individual Markdown export) was already
+satisfied by Phase 4/7's `IMarkdownFileWriter`/`IChunkFileWriter` — the
+individual `.md`/chunk files written during conversion already ARE FR-027's
+"individual Markdown files" export; Phase 10's actual new deliverable was the
+single-ZIP packaging (FR-028/046).
+Phase 11 (Testing) is next, including the Sprint 10 "Settings & Logging
+Hardening" cross-feature verification pass (AC-022/023/024) already folded
+into TASK-060–062.*

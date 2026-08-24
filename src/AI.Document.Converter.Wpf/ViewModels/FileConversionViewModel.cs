@@ -1,4 +1,5 @@
 using AI.Document.Converter.Application.Models;
+using AI.Document.Converter.Domain.Entities;
 using AI.Document.Converter.Domain.Enums;
 
 namespace AI.Document.Converter.Wpf.ViewModels;
@@ -42,6 +43,13 @@ public sealed class FileConversionViewModel : ViewModelBase
     // batch (e.g. Convert All can still be running for other rows while this
     // row is retried individually).
     public BatchOperationKind? LastAttemptedOperation { get; set; }
+
+    // FR-028/046: Export needs the actual ConversionResult (token estimates,
+    // DocumentMetadata, chunk output path), not just the display strings
+    // above - kept alongside them rather than re-derived from UI text.
+    public ConversionResult? LastConversionResult { get; set; }
+
+    public ConversionResult? LastChunkResult { get; set; }
 
     // Convert and Chunk are reported as two independent sub-results (FR-045)
     // rather than one accumulated string, so retrying just the chunk stage

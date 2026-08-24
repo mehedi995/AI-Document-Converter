@@ -172,6 +172,45 @@ All notable changes to this project are documented here. Format loosely follows
   probing accessibility with `CreateFileW` directly via `ctypes` and reading
   the real Win32 error code, verified against an actual
   `FileShare.None`-held file before relying on it in any test.
+- 2026-08-24 (Gate 5, Phase 10 — Export): closed a real documentation gap
+  found while starting this phase — `FR-046` had been referenced from the
+  roadmap, sprint plan, and traceability matrix since Gate 1, but was never
+  actually written into `docs/03-SRS.md`, and the ZIP's internal layout was
+  never actually specified in `docs/10-FOLDER-STRUCTURE.md` despite three
+  other documents citing it as "finalized there." What `metadata/` should
+  contain was a genuine open design question (front matter already covers
+  source/dates/pages inline) — confirmed with the user rather than assumed:
+  one `metadata/<name>.json` per successfully converted file, carrying the
+  token-estimate/success/chunk-count data that today exists only
+  transiently in the UI. Added both to close the gap before implementing
+  against it. TASK-056 (individual Markdown export, FR-027) needed no new
+  code — Phase 4/7's `IMarkdownFileWriter`/`IChunkFileWriter` already
+  produce exactly that; this phase's only new deliverable was the
+  single-ZIP packaging (FR-028/046).
+
+  Added `IExportService`/`ExportService` (Application) and
+  `ZipPackageBuilder` (a plain class, no interface — pure file-copying
+  logic over already-materialized output, nothing worth mocking) producing
+  `markdown/<name>.md`, `chunks/<name>/chunk_NNN.md` (only for files that
+  were chunked), and `metadata/<name>.json` per file. `ConversionResult`
+  now carries `DocumentMetadata` (set once, in `ConversionService`, so
+  Export never has to re-parse it back out of already-written front
+  matter). `IPathValidator` gained `IsValidFilePath` (SEC-002) alongside
+  the existing `IsValidDirectoryPath` — same traversal-rejection rule,
+  named for the caller's intent. Added an "Export as ZIP..." action on the
+  Dashboard; `FileConversionViewModel` now retains each row's actual
+  `ConversionResult`/chunk `ConversionResult` (not just their display
+  strings) so Export has real data to package rather than re-deriving it
+  from UI text.
+
+  A failed export leaves no half-written ZIP behind — the destination file
+  is deleted on any write failure rather than left as a corrupt file
+  masquerading as a successful export.
+
+  130 tests passing (103 unit + 27 integration, 6 new: export-path
+  validation rejection, no-successful-files rejection, and a real ZIP built
+  and re-opened to assert its actual internal layout and metadata JSON
+  content).
 - Gate 1 (2026-08-23): Business Analysis & Requirements —
   `docs/01-BRD.md` through `docs/06-ACCEPTANCE-CRITERIA.md`, including a
   Requirements Quality Review and the English-only MVP scope decision.

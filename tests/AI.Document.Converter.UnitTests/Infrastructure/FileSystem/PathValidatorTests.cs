@@ -50,4 +50,31 @@ public class PathValidatorTests
 
         Assert.False(result);
     }
+
+    // FR-028/046: IsValidFilePath backs the export ZIP destination path -
+    // same SEC-002 rule as IsValidDirectoryPath, just for a path naming a
+    // file rather than a directory.
+    [Fact]
+    public void IsValidFilePath_RootedAbsolutePath_ReturnsTrue()
+    {
+        var result = _validator.IsValidFilePath(@"C:\Users\Someone\Documents\export.zip");
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsValidFilePath_RelativePath_ReturnsFalse()
+    {
+        var result = _validator.IsValidFilePath(@"Output\export.zip");
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void IsValidFilePath_TraversalSequence_ReturnsFalse()
+    {
+        var result = _validator.IsValidFilePath(@"C:\Foo\..\Bar\export.zip");
+
+        Assert.False(result);
+    }
 }

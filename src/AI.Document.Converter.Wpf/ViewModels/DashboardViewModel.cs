@@ -25,6 +25,7 @@ public sealed class DashboardViewModel : ViewModelBase
     private readonly IImportService _importService;
     private readonly IConversionService _conversionService;
     private readonly IBatchService _batchService;
+    private readonly IExportService _exportService;
     private readonly SettingsService _settingsService;
 
     private string? _statusMessage;
@@ -35,11 +36,13 @@ public sealed class DashboardViewModel : ViewModelBase
         IImportService importService,
         IConversionService conversionService,
         IBatchService batchService,
+        IExportService exportService,
         SettingsService settingsService)
     {
         _importService = importService;
         _conversionService = conversionService;
         _batchService = batchService;
+        _exportService = exportService;
         _settingsService = settingsService;
 
         ImportFilesCommand = new AsyncRelayCommand(ImportFilesAsync);
@@ -52,6 +55,8 @@ public sealed class DashboardViewModel : ViewModelBase
         CancelCommand = new RelayCommand(Cancel, () => IsBusy);
         RetryCommand = new AsyncRelayCommand<FileConversionViewModel>(
             RetryAsync, item => !IsBusy && item?.Status == "Failed");
+        ExportCommand = new AsyncRelayCommand(
+            ExportAsZipAsync, () => !IsBusy && ImportedFiles.Any(f => f.LastConversionResult?.Success == true));
     }
 
     public ObservableCollection<FileConversionViewModel> ImportedFiles { get; } = [];
@@ -80,6 +85,11 @@ public sealed class DashboardViewModel : ViewModelBase
     // stage (Convert or Chunk) - enabled only while that row's Status is
     // "Failed" and no other batch is currently running.
     public ICommand RetryCommand { get; }
+
+    // FR-028: packages every successfully converted file's output (plus
+    // chunks, when generated) into a single ZIP - enabled once at least one
+    // file has converted successfully.
+    public ICommand ExportCommand { get; }
 
     public string? StatusMessage
     {
@@ -278,11 +288,13 @@ public sealed class DashboardViewModel : ViewModelBase
             case BatchItemState.Completed when update.Result!.Success:
                 item.Status = "Converted";
                 item.ConversionSummary = BuildResultSummary(update.Result);
+                item.LastConversionResult = update.Result;
                 break;
             case BatchItemState.Completed:
                 item.Status = "Failed";
                 item.IsError = true;
                 item.ConversionSummary = update.Result!.ErrorMessage;
+                item.LastConversionResult = update.Result;
                 break;
         }
     }
@@ -311,11 +323,13 @@ public sealed class DashboardViewModel : ViewModelBase
             case BatchItemState.Completed when update.Result!.Success:
                 item.Status = "Chunked";
                 item.ChunkSummary = $"{update.Result.ChunkCount} chunk(s)";
+                item.LastChunkResult = update.Result;
                 break;
             case BatchItemState.Completed:
                 item.Status = "Failed";
                 item.IsError = true;
                 item.ChunkSummary = $"Chunking failed: {update.Result!.ErrorMessage}";
+                item.LastChunkResult = update.Result;
                 break;
         }
     }
@@ -352,6 +366,49 @@ public sealed class DashboardViewModel : ViewModelBase
     private void Cancel()
     {
         _batchCancellationTokenSource?.Cancel();
+    }
+
+    // FR-028/046: packages every file that has ever converted successfully
+    // (LastConversionResult, not just the current run's Status) into one
+    // ZIP, with LastChunkResult included per file only when that file was
+    // also chunked.
+    private async Task ExportAsZipAsync()
+    {
+        var dialog = new SaveFileDialog
+        {
+            Filter = "ZIP Package (*.zip)|*.zip",
+            FileName = $"export-{DateTime.Now:yyyyMMdd-HHmmss}.zip",
+            Title = "Export as ZIP"
+        };
+
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        var items = ImportedFiles
+            .Where(f => f.LastConversionResult is { Success: true })
+            .Select(f => new ExportItem
+            {
+                SourceFilePath = f.ImportItem.FilePath,
+                ConversionResult = f.LastConversionResult!,
+                ChunkResult = f.LastChunkResult
+            })
+            .ToList();
+
+        IsBusy = true;
+        try
+        {
+            var result = await _exportService.ExportBatchAsZipAsync(items, dialog.FileName, CancellationToken.None);
+
+            StatusMessage = result.Success
+                ? $"Exported {result.ExportedFileCount} file(s) to {result.ZipPath}."
+                : result.ErrorMessage;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
     }
 
     private static string BuildResultSummary(ConversionResult result)

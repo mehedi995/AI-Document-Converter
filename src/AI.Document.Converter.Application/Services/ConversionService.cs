@@ -56,7 +56,8 @@ public sealed class ConversionService : IConversionService
                 Success = true,
                 OutputPath = outputPath,
                 Tokens = tokens,
-                CompletedStages = PipelineStage.Converted
+                CompletedStages = PipelineStage.Converted,
+                Metadata = document.Metadata
             };
         });
 

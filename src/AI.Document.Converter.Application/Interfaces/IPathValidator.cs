@@ -6,4 +6,9 @@ namespace AI.Document.Converter.Application.Interfaces;
 public interface IPathValidator
 {
     bool IsValidDirectoryPath(string path);
+
+    // FR-028/046: validates a ZIP export destination - same traversal/
+    // malformed-path rejection as IsValidDirectoryPath, just for a path
+    // that names a file rather than a directory.
+    bool IsValidFilePath(string path);
 }

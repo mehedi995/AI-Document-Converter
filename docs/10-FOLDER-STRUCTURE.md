@@ -114,6 +114,42 @@ README.md
   installed for routine .NET-only work; the Python engine is rebuilt explicitly or
   as a CI step.
 
+## 2a. Export ZIP Layout (FR-028/046, Roadmap Phase 10)
+
+Referenced from `docs/12-DEVELOPMENT-ROADMAP.md`, `docs/13-SPRINT-PLAN.md`, and
+`docs/15-IMPLEMENTATION-PLAN.md` as "finalized here" - added 2026-08-24 while
+implementing Phase 10, since this section didn't actually exist until then.
+`ExportService`/`ZipPackageBuilder` (`AI.Document.Converter.Application.Services`)
+produce, for a batch of *n* successfully converted files:
+
+```
+export.zip
+├── markdown/
+│   ├── <file-1-name>.md
+│   └── <file-2-name>.md
+├── chunks/
+│   └── <file-1-name>/              (only present if that file was chunked)
+│       ├── chunk_001.md
+│       └── chunk_002.md
+└── metadata/
+    ├── <file-1-name>.json          (FR-046 - see below)
+    └── <file-2-name>.json
+```
+
+- A file that was never chunked contributes no entries under `chunks/` at all
+  (no empty placeholder folder) - `chunks/` may be entirely absent from the ZIP
+  if no file in the batch was chunked.
+- A file that failed conversion contributes nothing to the ZIP (BR-006) - it is
+  silently excluded, not represented as an empty/error entry.
+- `metadata/<name>.json` (FR-046) is a small JSON document per successfully
+  converted file: source file name, file type, created/converted dates,
+  page/slide/sheet counts, author, token estimates and reduction percentage,
+  and chunk count. It exists specifically to carry the conversion-result data
+  that is otherwise shown only transiently in the UI and never persisted
+  anywhere else - it does not duplicate the front matter already embedded in
+  the `markdown/`/`chunks/` files (FR-013) beyond what's needed to be
+  self-contained.
+
 ## 3. Deviations From the CLAUDE.md Template
 
 None. The template in CLAUDE.md Section 10 is adopted directly, with the one

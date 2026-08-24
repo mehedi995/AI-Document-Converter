@@ -8,7 +8,15 @@ namespace AI.Document.Converter.Infrastructure.FileSystem;
 // sequences to filter.
 public sealed class PathValidator : IPathValidator
 {
-    public bool IsValidDirectoryPath(string path)
+    // A directory path and a file path are rejected by exactly the same
+    // rule (rooted, no invalid characters, normalizes to itself) - the two
+    // interface methods exist so a caller's intent reads clearly at the
+    // call site, not because the underlying check differs.
+    public bool IsValidDirectoryPath(string path) => IsWellFormedRootedPath(path);
+
+    public bool IsValidFilePath(string path) => IsWellFormedRootedPath(path);
+
+    private static bool IsWellFormedRootedPath(string path)
     {
         if (string.IsNullOrWhiteSpace(path))
         {

@@ -20,4 +20,10 @@ public sealed class ConversionResult
     // Populated only when this result comes from a chunk-generation run
     // (FR-018-021); null for a plain conversion result.
     public int? ChunkCount { get; init; }
+
+    // Populated on a successful ConvertAsync (FR-046): carries the
+    // extracted document's own metadata through to Export, which needs it
+    // to build metadata/<name>.json without re-parsing it back out of the
+    // already-written front matter.
+    public DocumentMetadata? Metadata { get; init; }
 }
