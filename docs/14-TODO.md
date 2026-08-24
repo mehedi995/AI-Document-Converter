@@ -2,7 +2,7 @@
 
 **Project:** AI Document Converter
 **Status:** In Progress — Gate 5 (Production Coding) underway
-**Date:** 2026-08-24 (Phase 1 completed)
+**Date:** 2026-08-24 (Phase 1 and Phase 2 completed)
 
 All tasks start as **TODO**. Status values: `TODO`, `IN PROGRESS`, `BLOCKED`, `DONE`.
 Priority: High / Medium / Low. Phase references `docs/12-DEVELOPMENT-ROADMAP.md`.
@@ -31,14 +31,14 @@ Priority: High / Medium / Low. Phase references `docs/12-DEVELOPMENT-ROADMAP.md`
 
 | Task ID | Description | Priority | Dependency | Status |
 |---|---|---|---|---|
-| TASK-014 | Implement single-file import via file picker (FR-001) | High | TASK-002 | TODO |
-| TASK-015 | Implement multi-file import (FR-002) | High | TASK-014 | TODO |
-| TASK-016 | Implement drag-and-drop import (FR-003) | Medium | TASK-014 | TODO |
-| TASK-017 | Implement top-level folder import (FR-004) | Medium | TASK-014 | TODO |
-| TASK-018 | Implement extension validation and per-file rejection messaging (FR-005) | High | TASK-014 | TODO |
-| TASK-019 | Implement batch size ceiling enforcement at import time (NFR-013) | Medium | TASK-006 | TODO |
-| TASK-020 | Build conversion list UI (name/type/size/status) | High | TASK-014 | TODO |
-| TASK-021 | Unit/UI tests for import validation and ceiling enforcement | High | TASK-018, TASK-019 | TODO |
+| TASK-014 | Implement single-file import via file picker (FR-001) | High | TASK-002 | DONE |
+| TASK-015 | Implement multi-file import (FR-002) | High | TASK-014 | DONE |
+| TASK-016 | Implement drag-and-drop import (FR-003) | Medium | TASK-014 | DONE |
+| TASK-017 | Implement top-level folder import (FR-004) | Medium | TASK-014 | DONE |
+| TASK-018 | Implement extension validation and per-file rejection messaging (FR-005) | High | TASK-014 | DONE |
+| TASK-019 | Implement batch size ceiling enforcement at import time (NFR-013) | Medium | TASK-006 | DONE |
+| TASK-020 | Build conversion list UI (name/type/size/status) | High | TASK-014 | DONE |
+| TASK-021 | Unit/UI tests for import validation and ceiling enforcement | High | TASK-018, TASK-019 | DONE |
 
 ## Phase 3 — Document Extraction
 
@@ -134,5 +134,5 @@ Priority: High / Medium / Low. Phase references `docs/12-DEVELOPMENT-ROADMAP.md`
 ---
 
 *Gates 1–4 approved 2026-08-23; Gate 5 (Production Coding) approved 2026-08-24.
-Phase 1 (TASK-001–TASK-013) is complete and verified — see the 2026-08-24 entry in
-`CHANGELOG.md`. Phase 2 (File Import) is next.*
+Phase 1 (TASK-001–TASK-013) and Phase 2 (TASK-014–TASK-021) are complete and
+verified — see `CHANGELOG.md`. Phase 3 (Document Extraction) is next.*

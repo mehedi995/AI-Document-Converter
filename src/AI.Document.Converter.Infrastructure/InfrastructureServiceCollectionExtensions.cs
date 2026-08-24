@@ -27,6 +27,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.Configure<AppSettings>(configuration);
 
         services.AddSingleton<IPathValidator, PathValidator>();
+        services.AddSingleton<IFileSizeReader, FileSizeReader>();
         services.AddSingleton<IPythonPathValidator, PythonPathValidator>();
         services.AddSingleton<ISettingsStore>(sp => new JsonSettingsStore(
             AppPaths.SettingsFilePath,

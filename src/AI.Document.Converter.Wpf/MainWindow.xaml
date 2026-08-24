@@ -6,7 +6,15 @@
         xmlns:local="clr-namespace:AI.Document.Converter.Wpf"
         mc:Ignorable="d"
         Title="AI Document Converter" Height="600" Width="900">
-    <!-- Phase 1's only screen is Settings; Phase 2 replaces this content with the
-         Dashboard/navigation shell once Import exists (docs/12-DEVELOPMENT-ROADMAP.md). -->
-    <Grid x:Name="RootContent" />
+    <!-- A plain TabControl is the simplest navigation that covers two screens
+         (docs/11-CODING-STANDARDS.md: no unnecessary abstraction) - revisit only
+         if a later phase needs richer navigation than this. -->
+    <TabControl>
+        <TabItem Header="Convert">
+            <ContentControl x:Name="DashboardHost" />
+        </TabItem>
+        <TabItem Header="Settings">
+            <ContentControl x:Name="SettingsHost" />
+        </TabItem>
+    </TabControl>
 </Window>

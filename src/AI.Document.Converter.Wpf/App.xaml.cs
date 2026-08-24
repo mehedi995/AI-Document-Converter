@@ -64,6 +64,8 @@ public partial class App : System.Windows.Application
     {
         services.AddTransient<SettingsViewModel>();
         services.AddTransient<SettingsView>();
+        services.AddTransient<DashboardViewModel>();
+        services.AddTransient<DashboardView>();
         services.AddTransient<MainWindow>();
     }
 

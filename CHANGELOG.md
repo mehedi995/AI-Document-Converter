@@ -17,6 +17,14 @@ All notable changes to this project are documented here. Format loosely follows
   health check, and a working Settings screen. 22 unit/integration tests passing;
   verified end-to-end by running the built app (settings bootstrap, Python engine
   round trip, clean shutdown all confirmed via the log output).
+- 2026-08-24 (Gate 5, Phase 2 — File Import): `ImportService` (single/multiple/
+  drag-drop/folder import all reduce to one validated path list), extension
+  validation (FR-005) via `SupportedFileTypeExtensions`, cumulative batch
+  file-count/byte-size ceiling enforcement (NFR-013), a `DashboardView` with an
+  Import Files/Import Folder UI, a drag-and-drop attached behavior, and a
+  file-size display converter. `MainWindow` now hosts Convert and Settings as
+  tabs. 40 tests passing (39 unit + 1 integration); verified by running the built
+  app.
 
 Documentation progress ahead of the first release:
 - Gate 1 (2026-08-23): Business Analysis & Requirements —

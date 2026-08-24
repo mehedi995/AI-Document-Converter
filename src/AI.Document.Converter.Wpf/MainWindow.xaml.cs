@@ -5,9 +5,10 @@ namespace AI.Document.Converter.Wpf;
 
 public partial class MainWindow : Window
 {
-    public MainWindow(SettingsView settingsView)
+    public MainWindow(DashboardView dashboardView, SettingsView settingsView)
     {
         InitializeComponent();
-        RootContent.Children.Add(settingsView);
+        DashboardHost.Content = dashboardView;
+        SettingsHost.Content = settingsView;
     }
 }

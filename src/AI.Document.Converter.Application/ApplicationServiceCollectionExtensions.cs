@@ -1,3 +1,4 @@
+using AI.Document.Converter.Application.Interfaces;
 using AI.Document.Converter.Application.Services;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -8,6 +9,7 @@ public static class ApplicationServiceCollectionExtensions
     public static IServiceCollection AddApplication(this IServiceCollection services)
     {
         services.AddSingleton<SettingsService>();
+        services.AddSingleton<IImportService, ImportService>();
 
         return services;
     }

@@ -13,6 +13,10 @@ __pycache__/
 # Local Claude Code session/tooling state, not project source
 .claude/
 
+# Editor/tool-generated file unrelated to this project (Azure/Copilot MCP
+# boilerplate, not authored as part of this codebase)
+.github/copilot-instructions.md
+
 # OS/editor noise
 .DS_Store
 Thumbs.db
