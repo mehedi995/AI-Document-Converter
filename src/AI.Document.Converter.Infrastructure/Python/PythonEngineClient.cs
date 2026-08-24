@@ -94,9 +94,24 @@ public sealed class PythonEngineClient : IPythonEngineClient
             await process.StandardInput.FlushAsync(timeoutCts.Token);
             process.StandardInput.Close();
 
-            var responseJson = await process.StandardOutput.ReadToEndAsync(timeoutCts.Token);
+            // Both streams must be read concurrently, not one after the other:
+            // if the child writes enough to stderr to fill its OS pipe buffer
+            // while we're still blocked reading stdout, it stalls waiting for
+            // us to drain stderr - a classic redirected-process deadlock.
+            var stdOutTask = process.StandardOutput.ReadToEndAsync(timeoutCts.Token);
+            var stdErrTask = process.StandardError.ReadToEndAsync(timeoutCts.Token);
+            await Task.WhenAll(stdOutTask, stdErrTask);
             await process.WaitForExitAsync(timeoutCts.Token);
 
+            var stdErr = stdErrTask.Result;
+            if (!string.IsNullOrWhiteSpace(stdErr))
+            {
+                // Not necessarily a failure - some libraries write benign
+                // warnings to stderr - but always worth having in the log.
+                _logger.LogDebug("Python engine wrote to stderr: {StdErr}", stdErr);
+            }
+
+            var responseJson = stdOutTask.Result;
             var response = JsonSerializer.Deserialize<PythonEngineResponse<TResult>>(responseJson, JsonOptions);
             if (response is null)
             {

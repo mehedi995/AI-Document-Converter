@@ -2,7 +2,7 @@
 
 **Project:** AI Document Converter
 **Status:** In Progress — Gate 5 (Production Coding) underway
-**Date:** 2026-08-24 (Phase 1 and Phase 2 completed)
+**Date:** 2026-08-24 (Phases 1–3 completed)
 
 All tasks start as **TODO**. Status values: `TODO`, `IN PROGRESS`, `BLOCKED`, `DONE`.
 Priority: High / Medium / Low. Phase references `docs/12-DEVELOPMENT-ROADMAP.md`.
@@ -44,14 +44,14 @@ Priority: High / Medium / Low. Phase references `docs/12-DEVELOPMENT-ROADMAP.md`
 
 | Task ID | Description | Priority | Dependency | Status |
 |---|---|---|---|---|
-| TASK-022 | Implement `TextDocumentProcessor` with encoding detection (FR-010, FR-040) | Medium | TASK-020 | TODO |
-| TASK-023 | Implement `docx_extractor.py` + `DocxDocumentProcessor` (FR-007) | High | TASK-010, TASK-020 | TODO |
-| TASK-024 | Implement `pdf_extractor.py` + `PdfDocumentProcessor` incl. partial-page marking (FR-006, FR-043) | High | TASK-010, TASK-020 | TODO |
-| TASK-025 | Implement `xlsx_extractor.py` + `ExcelDocumentProcessor` incl. row-cap summarization, formulas/merged cells (FR-008, FR-041, FR-042) | High | TASK-010, TASK-020 | TODO |
-| TASK-026 | Implement `pptx_extractor.py` + `PowerPointDocumentProcessor` (FR-009) | Medium | TASK-010, TASK-020 | TODO |
-| TASK-027 | Implement shared image-placeholder handling across the four Python-backed processors (FR-039) | Medium | TASK-023, TASK-024, TASK-026 | TODO |
-| TASK-028 | Implement `IDocumentProcessor` strategy resolution in the Application layer (ADR-002) | High | TASK-022–TASK-026 | TODO |
-| TASK-029 | Integration tests: each processor against `samples/` | High | TASK-028 | TODO |
+| TASK-022 | Implement `TextDocumentProcessor` with encoding detection (FR-010, FR-040) | Medium | TASK-020 | DONE |
+| TASK-023 | Implement `docx_extractor.py` + `DocxDocumentProcessor` (FR-007) | High | TASK-010, TASK-020 | DONE |
+| TASK-024 | Implement `pdf_extractor.py` + `PdfDocumentProcessor` incl. partial-page marking (FR-006, FR-043) | High | TASK-010, TASK-020 | DONE |
+| TASK-025 | Implement `xlsx_extractor.py` + `ExcelDocumentProcessor` incl. row-cap summarization, formulas/merged cells (FR-008, FR-041, FR-042) | High | TASK-010, TASK-020 | DONE |
+| TASK-026 | Implement `pptx_extractor.py` + `PowerPointDocumentProcessor` (FR-009) | Medium | TASK-010, TASK-020 | DONE |
+| TASK-027 | Implement shared image-placeholder handling across the four Python-backed processors (FR-039) | Medium | TASK-023, TASK-024, TASK-026 | DONE |
+| TASK-028 | Implement `IDocumentProcessor` strategy resolution in the Application layer (ADR-002) | High | TASK-022–TASK-026 | DONE |
+| TASK-029 | Integration tests: each processor against `samples/` | High | TASK-028 | DONE |
 
 ## Phase 4 — Markdown Conversion
 
@@ -134,5 +134,5 @@ Priority: High / Medium / Low. Phase references `docs/12-DEVELOPMENT-ROADMAP.md`
 ---
 
 *Gates 1–4 approved 2026-08-23; Gate 5 (Production Coding) approved 2026-08-24.
-Phase 1 (TASK-001–TASK-013) and Phase 2 (TASK-014–TASK-021) are complete and
-verified — see `CHANGELOG.md`. Phase 3 (Document Extraction) is next.*
+Phases 1–3 (TASK-001–TASK-029) are complete and verified — see `CHANGELOG.md`.
+Phase 4 (Markdown Conversion) is next.*

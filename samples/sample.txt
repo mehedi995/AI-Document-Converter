@@ -1,0 +1,6 @@
+Sample Text Document
+
+This is a plain text file used as a fixture for the AI Document Converter (FR-010).
+
+It has multiple paragraphs and no special structure, since TXT
+files are read as plain text without further parsing.

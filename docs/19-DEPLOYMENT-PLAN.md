@@ -11,11 +11,16 @@
 1. `dotnet publish` the `AI.Document.Converter.Wpf` project as a **self-contained**
    .NET 8 deployment (no separate .NET runtime install required on the target
    machine — directly serves NFR-010).
-2. Run `scripts/build-python-engine.ps1` to produce the bundled Python executable
-   via PyInstaller, from the pinned `requirements.txt` (R-04 in
+2. Run `scripts/build-python-engine.ps1` to produce the bundled Python engine
+   **folder** via PyInstaller (`--onedir`, not `--onefile` — see
+   `docs/adr/ADR-001-python-integration.md` Addendum for why: `--onefile`
+   measured at ~5 seconds of self-extraction per launch once Phase 3's
+   extraction libraries were bundled in, which is unaffordable given one
+   process starts per file), from the pinned `requirements.txt` (R-04 in
    `docs/18-RISK-ASSESSMENT.md`).
-3. Copy the built Python executable into the WPF publish output's application
-   folder (path referenced by the default `PythonEngineOptions`).
+3. Copy the built Python engine folder (`AIDocumentConverter.PythonEngine.exe`
+   plus its `_internal/` dependency folder) into the WPF publish output's
+   `PythonEngine/` subfolder (path referenced by `AppPaths.BundledPythonEnginePath`).
 4. Run the full test suite (`docs/16-TEST-STRATEGY.md`) against the published
    output before packaging.
 
@@ -30,17 +35,17 @@
 ## 3. Python Runtime Strategy
 
 Per ADR-001: **no separate Python installation is required.** The bundled,
-PyInstaller-built executable ships inside the application's install folder. This is
-the single biggest lever for NFR-010 (minimal manual dependency installation) and
-directly retires the "Python distribution complexity" risk flagged from the earliest
-BRD draft.
+PyInstaller-built **application folder** ships inside the application's install
+folder. This is the single biggest lever for NFR-010 (minimal manual dependency
+installation) and directly retires the "Python distribution complexity" risk
+flagged from the earliest BRD draft.
 
 ## 4. Dependencies
 
 | Dependency | How it reaches the target machine |
 |---|---|
 | .NET 8 runtime | Bundled via self-contained publish — no separate install |
-| Python 3.x + libraries | Bundled as a single PyInstaller executable — no separate install |
+| Python 3.x + libraries | Bundled as a PyInstaller `--onedir` application folder — no separate install |
 | Serilog, DI, other NuGet packages | Compiled into the self-contained publish output |
 
 No dependency in this table requires the target machine to have internet access or
@@ -58,9 +63,9 @@ enterprise environments:
    environments where even running a signed installer requires a separate change
    request — IT can extract and run `AI.Document.Converter.exe` directly.
 
-Both the installer and the bundled Python executable are **code-signed** (R-16,
-`docs/18-RISK-ASSESSMENT.md`) with an organization-issued certificate before
-release.
+Both the installer and the bundled Python engine's executable are **code-signed**
+(R-16, `docs/18-RISK-ASSESSMENT.md`) with an organization-issued certificate
+before release.
 
 ## 6. Configuration on the Target Machine
 

@@ -10,13 +10,14 @@
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.11" />
   </ItemGroup>
 
-  <!-- ADR-001: copy the bundled Python engine into this app's own output folder
-       if it has been built (see scripts/build-python-engine.ps1). Condition keeps
-       a plain `dotnet build` working for someone who hasn't run PyInstaller yet. -->
-  <ItemGroup>
-    <None Include="..\AI.Document.Converter.Python\dist\AIDocumentConverter.PythonEngine.exe"
-          Condition="Exists('..\AI.Document.Converter.Python\dist\AIDocumentConverter.PythonEngine.exe')"
-          Link="PythonEngine\AIDocumentConverter.PythonEngine.exe"
+  <!-- ADR-001: copy the bundled Python engine (a PyInstaller "onedir" build; see
+       scripts/build-python-engine.ps1 for why not the single-file "onefile" mode)
+       into this app's own output folder if it has been built. The Condition
+       keeps a plain `dotnet build` working for someone who hasn't run
+       PyInstaller yet. -->
+  <ItemGroup Condition="Exists('..\AI.Document.Converter.Python\dist\AIDocumentConverter.PythonEngine\AIDocumentConverter.PythonEngine.exe')">
+    <None Include="..\AI.Document.Converter.Python\dist\AIDocumentConverter.PythonEngine\**\*.*"
+          Link="PythonEngine\%(RecursiveDir)%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

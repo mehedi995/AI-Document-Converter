@@ -10,6 +10,7 @@ public static class ApplicationServiceCollectionExtensions
     {
         services.AddSingleton<SettingsService>();
         services.AddSingleton<IImportService, ImportService>();
+        services.AddSingleton<IDocumentProcessorResolver, DocumentProcessorResolver>();
 
         return services;
     }

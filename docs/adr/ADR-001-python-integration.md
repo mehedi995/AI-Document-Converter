@@ -66,3 +66,29 @@ Constraints that drive this decision (see `docs/01-BRD.md`, `docs/03-SRS.md`):
 - Requirement wording elsewhere that says "Python engine" (FR-029, FR-034, FR-038)
   now maps concretely to "the bundled Python subprocess" for architecture and
   implementation purposes.
+
+## Addendum (2026-08-24) — PyInstaller "onedir", not "onefile"
+
+Phase 3 (Document Extraction) added `pymupdf`, `python-docx`, `openpyxl`, and
+`python-pptx` to the bundled engine. Measured against the real build:
+
+- A PyInstaller **`--onefile`** build (Phase 1's original choice, when the engine
+  was stdlib-only) re-extracts its entire payload to a temp directory on *every*
+  launch. Once the heavier libraries were bundled in, this cost **~5 seconds per
+  invocation** — and since the Decision above starts one process per file, that
+  cost would be paid on every single file in every batch, making the
+  `docs/03-SRS.md` Section 8 performance benchmarks (e.g., 100 files in ≤ 8
+  minutes) unachievable on process-start overhead alone.
+- Switching to PyInstaller **`--onedir`** (unpacked once at build time, not on
+  every run) brought per-invocation startup down to **~1.1 seconds**, measured
+  identically. `scripts/build-python-engine.ps1`,
+  `AI.Document.Converter.Wpf.csproj`'s copy step, and the integration tests'
+  `RepoPaths.BundledPythonEnginePath()` were all updated accordingly — the
+  bundled engine is now a **folder** (`AIDocumentConverter.PythonEngine.exe` plus
+  an `_internal/` folder of dependencies), not a single file.
+- This does not change the Decision above: it is still one self-contained,
+  bundled artifact requiring no separate Python install, still invoked as a
+  short-lived subprocess per file, still communicating over JSON stdin/stdout.
+  `docs/19-DEPLOYMENT-PLAN.md`'s wording is updated to say "application folder"
+  rather than "single executable" where that distinction matters (e.g., an
+  installer must package the whole folder, not one file).

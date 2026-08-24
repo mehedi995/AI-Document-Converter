@@ -25,6 +25,27 @@ All notable changes to this project are documented here. Format loosely follows
   file-size display converter. `MainWindow` now hosts Convert and Settings as
   tabs. 40 tests passing (39 unit + 1 integration); verified by running the built
   app.
+- 2026-08-24 (Gate 5, Phase 3 — Document Extraction): all five
+  `IDocumentProcessor` implementations (`TextDocumentProcessor` pure .NET;
+  `Pdf`/`Docx`/`Excel`/`PowerPoint` via a shared `PythonBackedDocumentProcessor`
+  base class and the four new Python extractors) plus `DocumentProcessorResolver`
+  (ADR-002). `ContentBlock` refactored to use `System.Text.Json`'s built-in
+  polymorphic discriminator instead of a redundant `Type` property (would have
+  collided with it on the wire). Generated non-confidential fixtures in
+  `samples/` (`scripts/generate-samples.py`). 47 tests passing (39 unit + 8
+  integration, the latter against the real bundled engine and real fixtures).
+
+  Two real bugs found and fixed while wiring this up, not just written and
+  assumed correct:
+  - `pymupdf.find_tables()` prints an informational line straight to **stdout**,
+    which would have corrupted every PDF extraction's JSON response in
+    production; `dispatch.py` now isolates the JSON channel from any library's
+    stray prints.
+  - A PyInstaller `--onefile` build re-extracts its whole payload on every
+    launch (~5s once Phase 3's libraries were bundled in) — unaffordable with
+    one process per file. Switched to `--onedir` (~1.1s); see
+    `docs/adr/ADR-001-python-integration.md` Addendum and `docs/18-RISK-ASSESSMENT.md`
+    R-17.
 
 Documentation progress ahead of the first release:
 - Gate 1 (2026-08-23): Business Analysis & Requirements —

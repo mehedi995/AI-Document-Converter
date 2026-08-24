@@ -1,6 +1,11 @@
 using AI.Document.Converter.Application.Interfaces;
 using AI.Document.Converter.Domain.ValueObjects;
 using AI.Document.Converter.Infrastructure.Configuration;
+using AI.Document.Converter.Infrastructure.DocumentProcessing.Docx;
+using AI.Document.Converter.Infrastructure.DocumentProcessing.Excel;
+using AI.Document.Converter.Infrastructure.DocumentProcessing.Pdf;
+using AI.Document.Converter.Infrastructure.DocumentProcessing.PowerPoint;
+using AI.Document.Converter.Infrastructure.DocumentProcessing.Text;
 using AI.Document.Converter.Infrastructure.FileSystem;
 using AI.Document.Converter.Infrastructure.Python;
 using Microsoft.Extensions.Configuration;
@@ -34,6 +39,14 @@ public static class InfrastructureServiceCollectionExtensions
             sp.GetRequiredService<IOptionsMonitor<AppSettings>>(),
             sp.GetRequiredService<ILogger<JsonSettingsStore>>()));
         services.AddSingleton<IPythonEngineClient, PythonEngineClient>();
+
+        // ADR-002: all five registered under the same interface; the resolver
+        // (Application layer) picks the first one whose CanProcess matches.
+        services.AddSingleton<IDocumentProcessor, TextDocumentProcessor>();
+        services.AddSingleton<IDocumentProcessor, PdfDocumentProcessor>();
+        services.AddSingleton<IDocumentProcessor, DocxDocumentProcessor>();
+        services.AddSingleton<IDocumentProcessor, ExcelDocumentProcessor>();
+        services.AddSingleton<IDocumentProcessor, PowerPointDocumentProcessor>();
 
         return services;
     }
