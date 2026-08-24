@@ -70,3 +70,15 @@ def estimate(payload):
         "originalClaudeStyle": len(claude_proxy.encode(original_text)),
         "convertedClaudeStyle": len(claude_proxy.encode(converted_text)),
     }
+
+
+def count_batch(payload):
+    """FR-018/ADR-003: chunk sizing uses the exact GPT-4o-style (o200k_base)
+    count, not an approximation - one batched call per document (encode_batch
+    is tiktoken's own multi-threaded batch API) rather than one subprocess
+    invocation per chunk-boundary decision, since each subprocess call costs
+    real wall-clock time (ADR-001).
+    """
+    texts = payload.get("texts") or []
+    gpt4o = _gpt4o()
+    return {"counts": [len(tokens) for tokens in gpt4o.encode_batch(texts)]}

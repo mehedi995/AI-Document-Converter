@@ -1,4 +1,5 @@
 using AI.Document.Converter.Domain.Entities;
+using AI.Document.Converter.Domain.ValueObjects;
 
 namespace AI.Document.Converter.Application.Interfaces;
 
@@ -14,5 +15,18 @@ public interface IConversionService
         string filePath,
         string outputDirectory,
         IOutputPathResolver outputPathResolver,
+        CancellationToken cancellationToken);
+
+    // UC-003 (Phase 7): a separate, independently-triggerable action from
+    // ConvertAsync (matching CLAUDE.md's Chunk Settings screen having its own
+    // "Generate Chunks" action) rather than an optional parameter bolted onto
+    // ConvertAsync - this re-extracts the source file rather than caching the
+    // DocumentModel from an earlier ConvertAsync call, trading a small amount
+    // of redundant work for not having to manage in-memory document lifetime
+    // across separate UI actions.
+    Task<ConversionResult> GenerateChunksAsync(
+        string filePath,
+        string outputDirectory,
+        ChunkOptions chunkOptions,
         CancellationToken cancellationToken);
 }

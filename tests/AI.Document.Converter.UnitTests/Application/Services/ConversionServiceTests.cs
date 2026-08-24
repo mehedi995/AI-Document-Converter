@@ -17,6 +17,8 @@ public class ConversionServiceTests
     private readonly Mock<IMarkdownGenerator> _markdownGenerator = new();
     private readonly Mock<ITokenEstimator> _tokenEstimator = new();
     private readonly Mock<IMarkdownFileWriter> _fileWriter = new();
+    private readonly Mock<IChunkGenerator> _chunkGenerator = new();
+    private readonly Mock<IChunkFileWriter> _chunkFileWriter = new();
     private readonly Mock<IOutputPathResolver> _outputPathResolver = new();
     private readonly ConversionService _service;
 
@@ -39,6 +41,8 @@ public class ConversionServiceTests
             _markdownGenerator.Object,
             _tokenEstimator.Object,
             _fileWriter.Object,
+            _chunkGenerator.Object,
+            _chunkFileWriter.Object,
             NullLogger<ConversionService>.Instance);
 
         _processorResolver.Setup(r => r.Resolve(It.IsAny<string>())).Returns(_processor.Object);
@@ -118,5 +122,59 @@ public class ConversionServiceTests
 
         await Assert.ThrowsAsync<OperationCanceledException>(() => _service.ConvertAsync(
             @"C:\Source\report.pdf", @"C:\Output", _outputPathResolver.Object, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task GenerateChunksAsync_HappyPath_ReturnsChunkCountAndWritesChunks()
+    {
+        _processor
+            .Setup(p => p.ExtractAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SampleDocument);
+
+        var chunks = new List<DocumentChunk>
+        {
+            new()
+            {
+                SequenceNumber = 1,
+                SourceFileName = "report.md",
+                Content = "Body\n",
+                TokenCount = 2,
+                OverlapTokens = 0
+            }
+        };
+        _chunkGenerator
+            .Setup(c => c.GenerateChunksAsync(
+                SampleDocument, It.IsAny<ChunkOptions>(), "report.md", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(chunks);
+
+        var options = new ChunkOptions { ChunkSizeTokens = 512, OverlapTokens = 50 };
+        var result = await _service.GenerateChunksAsync(
+            @"C:\Source\report.pdf", @"C:\Output", options, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal(1, result.ChunkCount);
+        Assert.Equal(PipelineStage.Chunked, result.CompletedStages);
+        _chunkFileWriter.Verify(
+            w => w.WriteAsync(
+                Path.Combine(@"C:\Output", "chunks", "report"), chunks, It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task GenerateChunksAsync_ProcessorThrowsDocumentConversionException_ReturnsCategorizedFailure()
+    {
+        _processor
+            .Setup(p => p.ExtractAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new DocumentConversionException("locked", ErrorCategory.FileLocked));
+
+        var options = new ChunkOptions { ChunkSizeTokens = 512, OverlapTokens = 50 };
+        var result = await _service.GenerateChunksAsync(
+            @"C:\Source\report.pdf", @"C:\Output", options, CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal(ErrorCategory.FileLocked, result.Error);
+        _chunkFileWriter.Verify(
+            w => w.WriteAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<DocumentChunk>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 }

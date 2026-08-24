@@ -52,10 +52,15 @@ def handle_tokenize(payload):
     return tokenizer.estimate(payload)
 
 
+def handle_count_tokens(payload):
+    return tokenizer.count_batch(payload)
+
+
 OPERATION_HANDLERS = {
     "health_check": handle_health_check,
     "extract": handle_extract,
     "tokenize": handle_tokenize,
+    "count_tokens": handle_count_tokens,
 }
 
 

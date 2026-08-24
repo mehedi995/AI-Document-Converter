@@ -5,6 +5,7 @@ using AI.Document.Converter.Application.Interfaces;
 using AI.Document.Converter.Application.Models;
 using AI.Document.Converter.Application.Services;
 using AI.Document.Converter.Domain.Entities;
+using AI.Document.Converter.Domain.ValueObjects;
 using AI.Document.Converter.Wpf.Commands;
 using Microsoft.Win32;
 
@@ -39,6 +40,8 @@ public sealed class DashboardViewModel : ViewModelBase
         DropFilesCommand = new AsyncRelayCommand<string[]>(paths =>
             ImportPathsAsync(ExpandDroppedPaths(paths ?? [])));
         ConvertAllCommand = new AsyncRelayCommand(ConvertAllAsync, () => ImportedFiles.Count > 0);
+        GenerateChunksCommand = new AsyncRelayCommand(
+            GenerateChunksAllAsync, () => ImportedFiles.Any(f => f.Status == "Converted"));
     }
 
     public ObservableCollection<FileConversionViewModel> ImportedFiles { get; } = [];
@@ -50,6 +53,14 @@ public sealed class DashboardViewModel : ViewModelBase
     public ICommand DropFilesCommand { get; }
 
     public ICommand ConvertAllCommand { get; }
+
+    // FR-018-021 (Phase 7): a distinct action from Convert All, matching
+    // CLAUDE.md's Chunk Settings screen having its own "Generate Chunks"
+    // trigger. Chunk size/overlap are NOT duplicated in a separate screen -
+    // they already live on the main Settings screen (Phase 1's
+    // AppSettings.ChunkSizeTokens/ChunkOverlapTokens); this command just uses
+    // whatever is currently configured there.
+    public ICommand GenerateChunksCommand { get; }
 
     public string? StatusMessage
     {
@@ -161,6 +172,40 @@ public sealed class DashboardViewModel : ViewModelBase
         }
 
         StatusMessage = $"Converted {successCount} file(s); {failureCount} failed.";
+    }
+
+    private async Task GenerateChunksAllAsync()
+    {
+        var settings = await _settingsService.GetSettingsAsync(CancellationToken.None);
+        var chunkOptions = new ChunkOptions
+        {
+            ChunkSizeTokens = settings.ChunkSizeTokens,
+            OverlapTokens = settings.ChunkOverlapTokens
+        };
+        var chunkedCount = 0;
+        var failureCount = 0;
+
+        // Only files that already converted successfully - chunking a file
+        // that never produced valid content wouldn't mean anything.
+        foreach (var item in ImportedFiles.Where(f => f.Status == "Converted"))
+        {
+            var result = await _conversionService.GenerateChunksAsync(
+                item.ImportItem.FilePath, settings.OutputDirectory, chunkOptions, CancellationToken.None);
+
+            if (result.Success)
+            {
+                chunkedCount++;
+                item.ResultSummary += $" | {result.ChunkCount} chunk(s)";
+            }
+            else
+            {
+                failureCount++;
+                item.IsError = true;
+                item.ResultSummary += $" | Chunking failed: {result.ErrorMessage}";
+            }
+        }
+
+        StatusMessage = $"Generated chunks for {chunkedCount} file(s); {failureCount} failed.";
     }
 
     private static string BuildResultSummary(ConversionResult result)

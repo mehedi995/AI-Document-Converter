@@ -28,6 +28,8 @@
                     Command="{Binding ImportFolderCommand}" />
             <Button Content="Convert All" Padding="16,4" Margin="24,0,0,0"
                     Command="{Binding ConvertAllCommand}" />
+            <Button Content="Generate Chunks" Padding="16,4" Margin="8,0,0,0"
+                    Command="{Binding GenerateChunksCommand}" />
             <TextBlock Text="or drag and drop files/folders below" VerticalAlignment="Center" Margin="16,0,0,0"
                        FontStyle="Italic" Foreground="Gray" />
         </StackPanel>

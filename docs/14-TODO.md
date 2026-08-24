@@ -2,7 +2,7 @@
 
 **Project:** AI Document Converter
 **Status:** In Progress — Gate 5 (Production Coding) underway
-**Date:** 2026-08-24 (Phases 1–4 and 6 completed)
+**Date:** 2026-08-24 (Phases 1–4, 6, and 7 completed)
 
 All tasks start as **TODO**. Status values: `TODO`, `IN PROGRESS`, `BLOCKED`, `DONE`.
 Priority: High / Medium / Low. Phase references `docs/12-DEVELOPMENT-ROADMAP.md`.
@@ -76,11 +76,11 @@ Priority: High / Medium / Low. Phase references `docs/12-DEVELOPMENT-ROADMAP.md`
 
 | Task ID | Description | Priority | Dependency | Status |
 |---|---|---|---|---|
-| TASK-039 | Implement `IChunkGenerator` operating on the structured `DocumentModel` (FR-019, FR-020) | High | TASK-037 | TODO |
-| TASK-040 | Implement configurable chunk size/overlap in tokens, default 512/50 (FR-018) | High | TASK-039 | TODO |
-| TASK-041 | Implement chunk file writer with sequence + source metadata (FR-021) | Medium | TASK-040 | TODO |
-| TASK-042 | Build Chunk Settings screen | Medium | TASK-040 | TODO |
-| TASK-043 | Unit tests: table-safe chunking, overlap correctness, minimum-chunk-size edge case | High | TASK-039–TASK-041 | TODO |
+| TASK-039 | Implement `IChunkGenerator` operating on the structured `DocumentModel` (FR-019, FR-020) | High | TASK-037 | DONE |
+| TASK-040 | Implement configurable chunk size/overlap in tokens, default 512/50 (FR-018) | High | TASK-039 | DONE |
+| TASK-041 | Implement chunk file writer with sequence + source metadata (FR-021) | Medium | TASK-040 | DONE |
+| TASK-042 | Build Chunk Settings screen | Medium | TASK-040 | DONE |
+| TASK-043 | Unit tests: table-safe chunking, overlap correctness, minimum-chunk-size edge case | High | TASK-039–TASK-041 | DONE |
 
 ## Phase 8 — Batch Processing
 
@@ -134,7 +134,8 @@ Priority: High / Medium / Low. Phase references `docs/12-DEVELOPMENT-ROADMAP.md`
 ---
 
 *Gates 1–4 approved 2026-08-23; Gate 5 (Production Coding) approved 2026-08-24.
-Phases 1–4 and 6 (TASK-001–TASK-038) are complete and verified — see
-`CHANGELOG.md`. Phase 6 also introduced `ConversionService` (single-file, no
-Phase 8 batching yet) since a real Convert action was needed to have anything
-to show token estimates for. Phase 7 (Chunk Generation) is next.*
+Phases 1–4, 6, and 7 (TASK-001–TASK-043) are complete and verified — see
+`CHANGELOG.md`. TASK-042 ("Chunk Settings screen") was satisfied by reusing
+the existing Settings screen's chunk size/overlap fields (Phase 1) plus a new
+"Generate Chunks" action on the Dashboard, rather than a duplicate screen.
+Phase 8 (Batch Processing) is next.*

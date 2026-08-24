@@ -76,8 +76,21 @@ All notable changes to this project are documented here. Format loosely follows
     Fixed with an explicit `--hidden-import tiktoken_ext.openai_public`.
   Both verified by hiding the OS-level tiktoken cache entirely and confirming
   tokenization still succeeds against the bundled files alone.
-
-Documentation progress ahead of the first release:
+- 2026-08-24 (Gate 5, Phase 7 — Chunk Generation): `ChunkGenerator` (FR-018-021)
+  operating on `DocumentModel` - a section's heading is glued to its first block
+  as one atomic unit (FR-020), a table exceeding the chunk size gets its own
+  dedicated chunk rather than ever being split (FR-019/AC-015), and overlap is
+  applied at whole-unit boundaries. Real per-unit token counts come from one new
+  batched `count_tokens` Python operation per document (not one subprocess call
+  per chunk-boundary decision, which would have reintroduced the R-17 startup-cost
+  problem). Extracted `MarkdownBlockRenderer` so `MarkdownGenerator` and
+  `ChunkGenerator` share identical formatting rules instead of risking drift
+  between two renderers. Added `IChunkFileWriter` (writes `chunk_NNN.md` with
+  source/sequence front matter) and a new `ConversionService.GenerateChunksAsync`
+  entry point plus a "Generate Chunks" Dashboard action - chunk size/overlap
+  reuse the existing Settings screen fields rather than a duplicate screen.
+  103 tests passing (90 unit + 13 integration, including a real multi-chunk
+  generation test against the bundled engine).
 - Gate 1 (2026-08-23): Business Analysis & Requirements —
   `docs/01-BRD.md` through `docs/06-ACCEPTANCE-CRITERIA.md`, including a
   Requirements Quality Review and the English-only MVP scope decision.

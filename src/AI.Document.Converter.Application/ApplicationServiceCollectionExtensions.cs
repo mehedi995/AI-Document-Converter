@@ -12,6 +12,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<IImportService, ImportService>();
         services.AddSingleton<IDocumentProcessorResolver, DocumentProcessorResolver>();
         services.AddSingleton<IMarkdownGenerator, MarkdownGenerator>();
+        services.AddSingleton<IChunkGenerator, ChunkGenerator>();
         services.AddSingleton<IConversionService, ConversionService>();
 
         // IOutputPathResolver is deliberately NOT registered here - it is

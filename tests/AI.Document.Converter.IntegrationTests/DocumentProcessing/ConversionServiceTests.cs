@@ -38,6 +38,8 @@ public class ConversionServiceTests : IDisposable
             new MarkdownGenerator(),
             new TokenEstimator(pythonEngineClient),
             new MarkdownFileWriter(),
+            new ChunkGenerator(new TokenCounter(pythonEngineClient)),
+            new ChunkFileWriter(),
             NullLogger<ConversionService>.Instance);
 
         _outputDirectory = Path.Combine(Path.GetTempPath(), $"ai-doc-converter-test-{Guid.NewGuid()}");
@@ -80,6 +82,30 @@ public class ConversionServiceTests : IDisposable
         Assert.True(first.Success);
         Assert.True(second.Success);
         Assert.Equal(first.OutputPath, second.OutputPath);
+    }
+
+    [Fact]
+    public async Task GenerateChunksAsync_RealPdfSampleWithSmallChunkSize_ProducesMultipleChunkFiles()
+    {
+        var sourcePath = Path.Combine(RepoPaths.SamplesDirectory(), "sample.pdf");
+        // Deliberately tiny so the small sample actually splits into multiple
+        // chunks, exercising the boundary/overlap logic for real rather than
+        // trivially producing one chunk.
+        var options = new ChunkOptions { ChunkSizeTokens = 15, OverlapTokens = 5 };
+
+        var result = await _service.GenerateChunksAsync(sourcePath, _outputDirectory, options, CancellationToken.None);
+
+        Assert.True(result.Success, result.ErrorMessage);
+        Assert.NotNull(result.ChunkCount);
+        Assert.True(result.ChunkCount > 1);
+
+        var chunkFiles = Directory.GetFiles(result.OutputPath!, "chunk_*.md");
+        Assert.Equal(result.ChunkCount, chunkFiles.Length);
+
+        var firstChunkContent = await File.ReadAllTextAsync(chunkFiles[0]);
+        Assert.StartsWith("---", firstChunkContent);
+        Assert.Contains("source:", firstChunkContent);
+        Assert.Contains("chunk: 1 of", firstChunkContent);
     }
 
     public void Dispose()
