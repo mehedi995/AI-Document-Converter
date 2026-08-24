@@ -27,6 +27,19 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <AssemblyTitle>AI Document Converter</AssemblyTitle>
+    <Product>AI Document Converter</Product>
+  </PropertyGroup>
+
+  <!-- docs/19-DEPLOYMENT-PLAN.md Section 1: a self-contained publish needs no
+       separate .NET runtime install on the target machine (NFR-010). Only
+       meaningful for `dotnet publish`, not the everyday `dotnet build` a
+       developer runs while working - RuntimeIdentifier alone doesn't force
+       every build to produce a runtime-specific output. -->
+  <PropertyGroup Condition="'$(SelfContained)' == 'true'">
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishSingleFile>false</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
   </PropertyGroup>
 
 </Project>

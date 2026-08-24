@@ -10,6 +10,9 @@ src/AI.Document.Converter.Python/dist/
 __pycache__/
 *.pyc
 
+# Release publish output (rebuilt via `dotnet publish`, docs/19-DEPLOYMENT-PLAN.md - not committed)
+publish/
+
 # Local Claude Code session/tooling state, not project source
 .claude/
 

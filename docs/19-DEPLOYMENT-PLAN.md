@@ -106,6 +106,25 @@ batch, confirm zero network activity (US-023), and confirm the uninstaller remov
 the install directory cleanly (leaving user data in `%LOCALAPPDATA%` untouched,
 consistent with the upgrade strategy above).
 
+**Executed 2026-08-24 (Phase 12, TASK-064/065):** `scripts\package-release.ps1`
+automates Section 1's build steps - `dotnet publish` (self-contained, `win-x64`),
+debug-symbol separation, and the portable ZIP; it also compiles
+`scripts\installer.iss` (Section 5's Inno Setup installer) when Inno Setup is
+available. The published self-contained build was launched and verified with the
+**dev build's own Python engine copy temporarily removed from disk**, confirming
+the app's startup health check passes against its own bundled `PythonEngine\`
+folder specifically (not a coincidentally-present dev copy) - the closest
+substitute for a genuinely clean machine available in this environment. Two items
+in this checklist remain **not executable in this environment** and are called out
+explicitly rather than skipped silently:
+- **Code signing** (both the installer and the bundled Python engine executable)
+  requires the organization's own certificate, which this environment does not
+  have. `scripts\package-release.ps1` prints this as an explicit remaining step.
+- **A genuinely clean VM** (no .NET, no Python, never having run this app before)
+  was not available; the in-place verification above is the closest practical
+  substitute, not a replacement for it. Perform the full clean-VM pass described
+  above before actually distributing a signed release.
+
 ---
 
 *Next document: remaining pre-Gate-5 documents (`docs/20`–`22`) — see final report.*

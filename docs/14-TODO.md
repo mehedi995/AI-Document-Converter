@@ -126,10 +126,10 @@ Priority: High / Medium / Low. Phase references `docs/12-DEVELOPMENT-ROADMAP.md`
 
 | Task ID | Description | Priority | Dependency | Status |
 |---|---|---|---|---|
-| TASK-064 | Finalize `docs/19-DEPLOYMENT-PLAN.md` and installer packaging | High | TASK-063 | TODO |
-| TASK-065 | Run full Release Checklist (CLAUDE.md Section 56) | High | TASK-064 | TODO |
-| TASK-066 | Update `CHANGELOG.md` and set version to 1.0.0 | Medium | TASK-065 | TODO |
-| TASK-067 | Tag release build | Medium | TASK-066 | TODO |
+| TASK-064 | Finalize `docs/19-DEPLOYMENT-PLAN.md` and installer packaging | High | TASK-063 | DONE |
+| TASK-065 | Run full Release Checklist (CLAUDE.md Section 56) | High | TASK-064 | DONE (2 items need real infra — see note) |
+| TASK-066 | Update `CHANGELOG.md` and set version to 1.0.0 | Medium | TASK-065 | DONE |
+| TASK-067 | Tag release build | Medium | TASK-066 | DONE |
 
 ---
 
@@ -165,4 +165,19 @@ chained with the suite's other large-allocation cases — see
 integration + a separately-run 6-case performance suite, per
 `docs/03-SRS.md` Section 8).
 
-Phase 12 (Release) is next.*
+Phase 12 (Release, TASK-064–TASK-067) is complete: self-contained `win-x64`
+publish, `scripts/package-release.ps1` (publish → portable ZIP → Inno Setup
+installer when available) and `scripts/installer.iss`, version 1.0.0 set
+solution-wide, `CHANGELOG.md`/`README.md` finalized, tagged `v1.0.0`. Two
+Release Checklist items (CLAUDE.md §56) need infrastructure this environment
+doesn't have and are called out explicitly rather than skipped silently:
+code signing (needs the organization's own certificate) and a genuinely
+clean-VM install pass (the closest available substitute — launching the
+published build with the dev build's own Python engine copy temporarily
+removed from disk, confirming it starts against its own bundled copy
+specifically — was performed instead). See
+`docs/19-DEPLOYMENT-PLAN.md` Section 9.
+
+**All 67 tasks across all 12 roadmap phases are now DONE.** This is the
+v1.0.0 MVP per `docs/02-PRD.md`; see `docs/20-FUTURE-ROADMAP.md` for what
+comes next (OCR, embeddings, additional AI providers).*

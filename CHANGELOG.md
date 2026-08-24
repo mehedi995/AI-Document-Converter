@@ -4,9 +4,28 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning follows
 [Semantic Versioning](https://semver.org/) (CLAUDE.md Section 55).
 
-## [Unreleased]
+## [1.0.0] — 2026-08-24
+
+First release. All 12 `docs/12-DEVELOPMENT-ROADMAP.md` phases complete; every
+Gate 1–5 approval satisfied.
 
 ### Added
+- 2026-08-24 (Gate 5, Phase 12 — Release): self-contained `win-x64` publish
+  (`dotnet publish`, `<Version>1.0.0</Version>` set solution-wide via
+  `Directory.Build.props`), `scripts/package-release.ps1` (publish → separate
+  debug symbols into `publish/symbols/` → portable ZIP → Inno Setup installer
+  when available), and `scripts/installer.iss` (Start Menu shortcuts, optional
+  desktop shortcut, uninstaller that never touches
+  `%LOCALAPPDATA%\AIDocumentConverter\`, per `docs/19-DEPLOYMENT-PLAN.md`
+  Sections 6/8). Verified the published self-contained build launches and
+  passes its startup health check against its *own* bundled Python engine
+  copy specifically - re-tested with the dev build's copy temporarily removed
+  from disk, since a stale local Settings override had silently been pointing
+  at the dev copy instead. Code signing and a genuinely clean-VM install
+  pass are called out explicitly as remaining, environment-dependent manual
+  steps (`docs/19-DEPLOYMENT-PLAN.md` Section 9) rather than skipped
+  silently. Rewrote `README.md`, which had been left describing the
+  pre-implementation state through eleven phases of actual development.
 - 2026-08-24 (Gate 5, Phase 1 — Project Foundation): solution skeleton
   (`AI.Document.Converter.sln`, five `src/` projects, two `tests/` projects) per
   `docs/10-FOLDER-STRUCTURE.md`; DI composition root, Serilog file logging,
@@ -278,14 +297,7 @@ All notable changes to this project are documented here. Format loosely follows
   `docs/20-FUTURE-ROADMAP.md`, `docs/21-REQUIREMENT-TRACEABILITY.md`,
   `docs/22-BUG-TRACKER.md` (template).
 
-## [0.0.0] — Planned first tag
+---
 
-Reserved for the first buildable commit of the solution skeleton
-(`docs/12-DEVELOPMENT-ROADMAP.md` Phase 1). Git was initialized 2026-08-24; no
-version tag has been cut yet — see the `master` branch commit history for
-per-phase commits in the meantime.
-
-## [1.0.0] — Planned MVP release
-
-Reserved for the first release satisfying all Gate 1–4 documentation and the
-Release Checklist (CLAUDE.md Section 56). Not yet created.
+Tagged as `v1.0.0` — see the `master` branch commit history for the full
+per-phase commit sequence from the solution skeleton (`e3b48d4`) onward.
