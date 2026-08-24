@@ -6,7 +6,14 @@ from zipfile import BadZipFile
 import openpyxl
 from openpyxl.utils.exceptions import InvalidFileException
 
-from extractors.common import ExtractionError, converted_date_iso, file_created_date_iso, normalize_optional_text
+from extractors.common import (
+    ExtractionError,
+    check_file_accessible,
+    check_not_encrypted_ooxml,
+    converted_date_iso,
+    file_created_date_iso,
+    normalize_optional_text,
+)
 
 MAX_TABLE_ROWS = 200
 MAX_TABLE_COLUMNS = 50
@@ -76,8 +83,8 @@ def _sheet_to_blocks(worksheet):
 
 
 def extract(file_path):
-    if not os.path.exists(file_path):
-        raise ExtractionError("fileNotFound", f"File not found: {file_path}")
+    check_file_accessible(file_path)
+    check_not_encrypted_ooxml(file_path)
 
     try:
         workbook = openpyxl.load_workbook(file_path, data_only=True)

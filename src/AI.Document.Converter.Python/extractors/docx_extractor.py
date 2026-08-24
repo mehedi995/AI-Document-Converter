@@ -20,6 +20,8 @@ from docx.text.paragraph import Paragraph
 
 from extractors.common import (
     ExtractionError,
+    check_file_accessible,
+    check_not_encrypted_ooxml,
     converted_date_iso,
     file_created_date_iso,
     normalize_optional_text,
@@ -66,8 +68,8 @@ def _paragraph_text_with_inline_links(paragraph):
 
 
 def extract(file_path):
-    if not os.path.exists(file_path):
-        raise ExtractionError("fileNotFound", f"File not found: {file_path}")
+    check_file_accessible(file_path)
+    check_not_encrypted_ooxml(file_path)
 
     try:
         document = Document(file_path)

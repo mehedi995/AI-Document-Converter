@@ -45,7 +45,20 @@
                         <GridViewColumn Header="Size" Width="80"
                                         DisplayMemberBinding="{Binding FileSizeBytes, Converter={StaticResource FileSizeConverter}}" />
                         <GridViewColumn Header="Status" Width="90" DisplayMemberBinding="{Binding Status}" />
-                        <GridViewColumn Header="Result" Width="300" DisplayMemberBinding="{Binding ResultSummary}" />
+                        <GridViewColumn Header="Result" Width="280" DisplayMemberBinding="{Binding ResultSummary}" />
+                        <GridViewColumn Header="" Width="60">
+                            <GridViewColumn.CellTemplate>
+                                <DataTemplate>
+                                    <!-- FR-030/AC-020: only meaningful once Status is "Failed";
+                                         RetryCommand's own CanExecute enforces that, so this
+                                         button simply appears disabled otherwise rather than
+                                         being hidden/shown per row. -->
+                                    <Button Content="Retry" Padding="8,2"
+                                            Command="{Binding DataContext.RetryCommand, RelativeSource={RelativeSource AncestorType=ListView}}"
+                                            CommandParameter="{Binding}" />
+                                </DataTemplate>
+                            </GridViewColumn.CellTemplate>
+                        </GridViewColumn>
                     </GridView>
                 </ListView.View>
                 <ListView.ItemContainerStyle>

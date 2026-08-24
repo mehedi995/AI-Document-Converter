@@ -13,7 +13,8 @@ namespace AI.Document.Converter.Wpf.ViewModels;
 public sealed class FileConversionViewModel : ViewModelBase
 {
     private string _status = "Ready";
-    private string? _resultSummary;
+    private string? _conversionSummary;
+    private string? _chunkSummary;
     private bool _isError;
 
     public FileConversionViewModel(FileImportItem importItem)
@@ -35,10 +36,49 @@ public sealed class FileConversionViewModel : ViewModelBase
         set => SetProperty(ref _status, value);
     }
 
+    // FR-030/AC-020: which single-file operation to re-run when the user
+    // clicks Retry on this row - whichever one this row's current Status
+    // actually resulted from, not necessarily the most recently started
+    // batch (e.g. Convert All can still be running for other rows while this
+    // row is retried individually).
+    public BatchOperationKind? LastAttemptedOperation { get; set; }
+
+    // Convert and Chunk are reported as two independent sub-results (FR-045)
+    // rather than one accumulated string, so retrying just the chunk stage
+    // replaces only the chunk half instead of stacking text onto a previous
+    // attempt's message.
+    public string? ConversionSummary
+    {
+        get => _conversionSummary;
+        set
+        {
+            if (SetProperty(ref _conversionSummary, value))
+            {
+                OnPropertyChanged(nameof(ResultSummary));
+            }
+        }
+    }
+
+    public string? ChunkSummary
+    {
+        get => _chunkSummary;
+        set
+        {
+            if (SetProperty(ref _chunkSummary, value))
+            {
+                OnPropertyChanged(nameof(ResultSummary));
+            }
+        }
+    }
+
     public string? ResultSummary
     {
-        get => _resultSummary;
-        set => SetProperty(ref _resultSummary, value);
+        get
+        {
+            var parts = new[] { ConversionSummary, ChunkSummary }.Where(s => !string.IsNullOrEmpty(s));
+            var joined = string.Join(" | ", parts);
+            return joined.Length == 0 ? null : joined;
+        }
     }
 
     public bool IsError

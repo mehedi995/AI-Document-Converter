@@ -8,6 +8,8 @@ from pptx.exc import PackageNotFoundError
 
 from extractors.common import (
     ExtractionError,
+    check_file_accessible,
+    check_not_encrypted_ooxml,
     converted_date_iso,
     file_created_date_iso,
     image_placeholder_block,
@@ -50,8 +52,8 @@ def _slide_body_blocks(slide):
 
 
 def extract(file_path):
-    if not os.path.exists(file_path):
-        raise ExtractionError("fileNotFound", f"File not found: {file_path}")
+    check_file_accessible(file_path)
+    check_not_encrypted_ooxml(file_path)
 
     try:
         presentation = Presentation(file_path)

@@ -129,6 +129,49 @@ All notable changes to this project are documented here. Format loosely follows
   dialog end-to-end was not automated in this pass — no UI-automation
   harness exists yet in this repo; see `docs/18-RISK-ASSESSMENT.md` if one
   is added later.
+- 2026-08-24 (Gate 5, Phase 9 — Error Handling): most of FR-029's error
+  categorization already existed by construction from earlier phases
+  (`DocumentConversionException`, `ConversionService`'s catch-all
+  `ExecuteAsync`, and SEC-006's stdin/stdout-only subprocess design in
+  `PythonEngineClient`, which never gave file paths or content a
+  command-line injection surface to begin with). This phase closed the real
+  remaining gaps: none of the four Python extractors distinguished a
+  locked/permission-denied file from a generic crash, and DOCX/XLSX/PPTX
+  password-protection fell through as a misleading `corruptedDocument`
+  error — a real BR-003 violation, since only PDF had ever checked for it.
+  Added `check_file_accessible`/`check_not_encrypted_ooxml` to
+  `extractors/common.py`, wired into all four extractors. Added a Retry
+  command (FR-030/AC-020) on the Dashboard — `FileConversionViewModel` now
+  tracks `ConversionSummary`/`ChunkSummary` as two independent fields
+  (rather than one accumulating string) plus `LastAttemptedOperation`, so
+  Retry re-runs only the stage that actually failed for that row without
+  duplicating text from a prior attempt. Added a last-resort
+  `DispatcherUnhandledException`/`AppDomain.UnhandledException`/
+  `TaskScheduler.UnobservedTaskException` safety net in `App.xaml.cs`
+  (FR-031) — full detail to the log, always the same fixed generic sentence
+  to the user, never `ex.Message`/`ex.ToString()`. 123 tests passing (98
+  unit + 25 integration, 10 of them new: a real OS-level file lock via
+  `FileShare.None`, real garbage bytes, and a real OLE-compound-file header,
+  each driven through the actual bundled Python engine, plus a real
+  retry-after-lock-released flow).
+
+  SEC-004 (temp-file cleanup) turned out to have nothing to clean up:
+  confirmed by inspection that this app creates zero temporary files
+  anywhere — ADR-001's stdin/stdout design and the `--onedir` PyInstaller
+  layout (R-17) together mean no intermediate file is ever written by
+  either side of the integration. Documented as a deliberate resolution
+  (`docs/adr/ADR-001-python-integration.md` Addendum,
+  `docs/18-RISK-ASSESSMENT.md` R-19) rather than building a
+  `TempFileCleanupService` with nothing to actually clean up.
+
+  One design assumption caught and corrected during verification, before it
+  ever reached a test or shipped: Windows' `PermissionError` for a locked
+  file was assumed to carry a distinguishing `winerror` (32) separate from a
+  real ACL denial (5) — empirically, CPython's `open()` collapses both to
+  the same `PermissionError` with `winerror=None` on this platform. Fixed by
+  probing accessibility with `CreateFileW` directly via `ctypes` and reading
+  the real Win32 error code, verified against an actual
+  `FileShare.None`-held file before relying on it in any test.
 - Gate 1 (2026-08-23): Business Analysis & Requirements —
   `docs/01-BRD.md` through `docs/06-ACCEPTANCE-CRITERIA.md`, including a
   Requirements Quality Review and the English-only MVP scope decision.

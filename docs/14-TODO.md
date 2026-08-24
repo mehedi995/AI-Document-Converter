@@ -97,12 +97,12 @@ Priority: High / Medium / Low. Phase references `docs/12-DEVELOPMENT-ROADMAP.md`
 
 | Task ID | Description | Priority | Dependency | Status |
 |---|---|---|---|---|
-| TASK-050 | Implement FR-029 error category mapping at every pipeline failure point | High | TASK-049 | TODO |
-| TASK-051 | Implement retry command for failed files (FR-030) | High | TASK-050 | TODO |
-| TASK-052 | Ensure no stack traces surface in the UI (FR-031) | High | TASK-050 | TODO |
-| TASK-053 | Implement SEC-006 injection-safe subprocess argument handling | High | TASK-010 | TODO |
-| TASK-054 | Implement SEC-004 temp-file cleanup incl. startup orphan cleanup | Medium | TASK-010 | TODO |
-| TASK-055 | Unit/integration tests simulating each error category and the retry flow | High | TASK-050–TASK-052 | TODO |
+| TASK-050 | Implement FR-029 error category mapping at every pipeline failure point | High | TASK-049 | DONE |
+| TASK-051 | Implement retry command for failed files (FR-030) | High | TASK-050 | DONE |
+| TASK-052 | Ensure no stack traces surface in the UI (FR-031) | High | TASK-050 | DONE |
+| TASK-053 | Implement SEC-006 injection-safe subprocess argument handling | High | TASK-010 | DONE |
+| TASK-054 | Implement SEC-004 temp-file cleanup incl. startup orphan cleanup | Medium | TASK-010 | DONE (n/a — see note) |
+| TASK-055 | Unit/integration tests simulating each error category and the retry flow | High | TASK-050–TASK-052 | DONE |
 
 ## Phase 10 — Export
 
@@ -134,8 +134,12 @@ Priority: High / Medium / Low. Phase references `docs/12-DEVELOPMENT-ROADMAP.md`
 ---
 
 *Gates 1–4 approved 2026-08-23; Gate 5 (Production Coding) approved 2026-08-24.
-Phases 1–4, 6, 7, and 8 (TASK-001–TASK-049) are complete and verified — see
+Phases 1–4, 6, 7, 8, and 9 (TASK-001–TASK-055) are complete and verified — see
 `CHANGELOG.md`. TASK-042 ("Chunk Settings screen") was satisfied by reusing
 the existing Settings screen's chunk size/overlap fields (Phase 1) plus a new
 "Generate Chunks" action on the Dashboard, rather than a duplicate screen.
-Phase 9 (Error Handling) is next.*
+TASK-054 (SEC-004 temp-file cleanup) has no code to build — this app creates
+zero temporary files anywhere by design (see `docs/adr/ADR-001-python-integration.md`
+Addendum and `docs/18-RISK-ASSESSMENT.md` R-19) — marked DONE as "confirmed
+not applicable," not skipped.
+Phase 10 (Export) is next.*

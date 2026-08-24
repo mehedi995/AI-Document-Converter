@@ -92,3 +92,15 @@ Phase 3 (Document Extraction) added `pymupdf`, `python-docx`, `openpyxl`, and
   `docs/19-DEPLOYMENT-PLAN.md`'s wording is updated to say "application folder"
   rather than "single executable" where that distinction matters (e.g., an
   installer must package the whole folder, not one file).
+
+## Addendum (2026-08-24) — SEC-004 has nothing to clean up
+
+Phase 9 (Error Handling) revisited SEC-004's requirement to clean up
+temporary files, including orphaned ones from a prior abnormally terminated
+session. This Decision's stdin/stdout JSON transport means the .NET side
+never writes an intermediate file for the Python engine to read, and the
+`--onedir` switch above means the engine itself no longer self-extracts to a
+temp directory either (that was specifically the `--onefile` behavior being
+replaced). Confirmed by inspection that neither side of this integration
+creates a temp file anywhere. No `TempFileCleanupService` was built as a
+result — see `docs/18-RISK-ASSESSMENT.md` R-19.

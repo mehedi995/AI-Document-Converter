@@ -16,6 +16,7 @@ import pymupdf
 
 from extractors.common import (
     ExtractionError,
+    check_file_accessible,
     converted_date_iso,
     file_created_date_iso,
     normalize_optional_text,
@@ -103,8 +104,7 @@ def _extract_page(page, page_number):
 
 
 def extract(file_path):
-    if not os.path.exists(file_path):
-        raise ExtractionError("fileNotFound", f"File not found: {file_path}")
+    check_file_accessible(file_path)
 
     try:
         document = pymupdf.open(file_path)

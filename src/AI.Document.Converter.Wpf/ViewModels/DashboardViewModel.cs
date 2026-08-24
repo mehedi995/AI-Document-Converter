@@ -50,6 +50,8 @@ public sealed class DashboardViewModel : ViewModelBase
         GenerateChunksCommand = new AsyncRelayCommand(
             GenerateChunksAllAsync, () => !IsBusy && ImportedFiles.Any(f => f.Status == "Converted"));
         CancelCommand = new RelayCommand(Cancel, () => IsBusy);
+        RetryCommand = new AsyncRelayCommand<FileConversionViewModel>(
+            RetryAsync, item => !IsBusy && item?.Status == "Failed");
     }
 
     public ObservableCollection<FileConversionViewModel> ImportedFiles { get; } = [];
@@ -73,6 +75,11 @@ public sealed class DashboardViewModel : ViewModelBase
     // FR-037: cancels whichever batch (Convert All or Generate Chunks) is
     // currently running; disabled otherwise via CanExecute.
     public ICommand CancelCommand { get; }
+
+    // FR-030/AC-020: re-attempts just the one failed row's last-attempted
+    // stage (Convert or Chunk) - enabled only while that row's Status is
+    // "Failed" and no other batch is currently running.
+    public ICommand RetryCommand { get; }
 
     public string? StatusMessage
     {
@@ -162,111 +169,160 @@ public sealed class DashboardViewModel : ViewModelBase
     private async Task ConvertAllAsync()
     {
         var settings = await _settingsService.GetSettingsAsync(CancellationToken.None);
-        var outputPathResolver = new OutputPathResolver();
 
-        var itemsByPath = ImportedFiles.ToDictionary(f => f.ImportItem.FilePath);
         foreach (var item in ImportedFiles)
         {
             item.Status = "Queued";
-            item.ResultSummary = null;
+            item.ConversionSummary = null;
+            item.ChunkSummary = null;
             item.IsError = false;
+            item.LastAttemptedOperation = BatchOperationKind.Convert;
         }
 
-        await RunBatchAsync(
-            ImportedFiles.Select(f => f.ImportItem.FilePath).ToList(),
-            (filePath, token) => _conversionService.ConvertAsync(
-                filePath, settings.OutputDirectory, outputPathResolver, token),
-            settings.MaxParallelism,
-            update =>
-            {
-                // FR-023: with real parallelism, several files are "in
-                // progress" at once, so each row tracks its own Started/
-                // Completed transition rather than a single "current file".
-                if (!itemsByPath.TryGetValue(update.FilePath, out var item))
-                {
-                    return;
-                }
-
-                switch (update.State)
-                {
-                    case BatchItemState.Started:
-                        item.Status = "Converting";
-                        break;
-                    case BatchItemState.Cancelled:
-                        item.Status = "Cancelled";
-                        break;
-                    case BatchItemState.Completed when update.Result!.Success:
-                        item.Status = "Converted";
-                        item.ResultSummary = BuildResultSummary(update.Result);
-                        break;
-                    case BatchItemState.Completed:
-                        item.Status = "Failed";
-                        item.IsError = true;
-                        item.ResultSummary = update.Result!.ErrorMessage;
-                        break;
-                }
-            },
-            summary => $"Converted {summary.SuccessCount} file(s); {summary.FailureCount} failed." +
-                       (summary.ProcessedFiles < summary.TotalFiles ? " (cancelled)" : string.Empty));
+        await RunConvertBatchAsync(ImportedFiles.ToList(), settings);
     }
 
     private async Task GenerateChunksAllAsync()
     {
         var settings = await _settingsService.GetSettingsAsync(CancellationToken.None);
+
+        // Only files that already converted successfully - chunking a file
+        // that never produced valid content wouldn't mean anything.
+        var items = ImportedFiles.Where(f => f.Status == "Converted").ToList();
+        foreach (var item in items)
+        {
+            item.LastAttemptedOperation = BatchOperationKind.Chunk;
+        }
+
+        await RunChunkBatchAsync(items, settings);
+    }
+
+    // FR-030/AC-020: re-runs whichever single operation this row's current
+    // "Failed" status came from, for just this one file - shares
+    // RunConvertBatchAsync/RunChunkBatchAsync (and so IsBusy/cancellation/
+    // progress) with the "All" commands via a one-item list rather than
+    // duplicating that plumbing for a single-file path.
+    private async Task RetryAsync(FileConversionViewModel? item)
+    {
+        if (item is null)
+        {
+            return;
+        }
+
+        item.IsError = false;
+        var settings = await _settingsService.GetSettingsAsync(CancellationToken.None);
+
+        if (item.LastAttemptedOperation == BatchOperationKind.Chunk)
+        {
+            await RunChunkBatchAsync([item], settings);
+        }
+        else
+        {
+            await RunConvertBatchAsync([item], settings);
+        }
+    }
+
+    private async Task RunConvertBatchAsync(IReadOnlyList<FileConversionViewModel> items, AppSettings settings)
+    {
+        var outputPathResolver = new OutputPathResolver();
+        var itemsByPath = items.ToDictionary(f => f.ImportItem.FilePath);
+
+        await RunBatchAsync(
+            itemsByPath.Keys.ToList(),
+            (filePath, token) => _conversionService.ConvertAsync(
+                filePath, settings.OutputDirectory, outputPathResolver, token),
+            settings.MaxParallelism,
+            update => ApplyConvertProgress(itemsByPath, update),
+            summary => $"Converted {summary.SuccessCount} file(s); {summary.FailureCount} failed." +
+                       (summary.ProcessedFiles < summary.TotalFiles ? " (cancelled)" : string.Empty));
+    }
+
+    private async Task RunChunkBatchAsync(IReadOnlyList<FileConversionViewModel> items, AppSettings settings)
+    {
         var chunkOptions = new ChunkOptions
         {
             ChunkSizeTokens = settings.ChunkSizeTokens,
             OverlapTokens = settings.ChunkOverlapTokens
         };
-
-        // Only files that already converted successfully - chunking a file
-        // that never produced valid content wouldn't mean anything.
-        var itemsByPath = ImportedFiles
-            .Where(f => f.Status == "Converted")
-            .ToDictionary(f => f.ImportItem.FilePath);
+        var itemsByPath = items.ToDictionary(f => f.ImportItem.FilePath);
 
         await RunBatchAsync(
             itemsByPath.Keys.ToList(),
             (filePath, token) => _conversionService.GenerateChunksAsync(
                 filePath, settings.OutputDirectory, chunkOptions, token),
             settings.MaxParallelism,
-            update =>
-            {
-                // FR-045: Chunked/Failed here is this file's chunking-stage
-                // status, distinct from the "Converted" status Convert All
-                // already gave it - a file can be Converted but Failed at
-                // the chunking stage, or vice versa on a later run.
-                if (!itemsByPath.TryGetValue(update.FilePath, out var item))
-                {
-                    return;
-                }
-
-                switch (update.State)
-                {
-                    case BatchItemState.Started:
-                        item.Status = "Chunking";
-                        break;
-                    case BatchItemState.Cancelled:
-                        item.Status = "Cancelled";
-                        break;
-                    case BatchItemState.Completed when update.Result!.Success:
-                        item.Status = "Chunked";
-                        item.ResultSummary += $" | {update.Result.ChunkCount} chunk(s)";
-                        break;
-                    case BatchItemState.Completed:
-                        item.Status = "Failed";
-                        item.IsError = true;
-                        item.ResultSummary += $" | Chunking failed: {update.Result!.ErrorMessage}";
-                        break;
-                }
-            },
+            update => ApplyChunkProgress(itemsByPath, update),
             summary => $"Generated chunks for {summary.SuccessCount} file(s); {summary.FailureCount} failed." +
                        (summary.ProcessedFiles < summary.TotalFiles ? " (cancelled)" : string.Empty));
     }
 
-    // Shared by Convert All and Generate Chunks (FR-022-025/FR-037/NFR-011) so
-    // both go through the same IsBusy/cancellation/progress plumbing instead
-    // of duplicating it.
+    // FR-023: with real parallelism, several files are "in progress" at
+    // once, so each row tracks its own Started/Completed transition rather
+    // than a single "current file".
+    private static void ApplyConvertProgress(
+        Dictionary<string, FileConversionViewModel> itemsByPath, BatchProgressUpdate update)
+    {
+        if (!itemsByPath.TryGetValue(update.FilePath, out var item))
+        {
+            return;
+        }
+
+        switch (update.State)
+        {
+            case BatchItemState.Started:
+                item.Status = "Converting";
+                break;
+            case BatchItemState.Cancelled:
+                item.Status = "Cancelled";
+                break;
+            case BatchItemState.Completed when update.Result!.Success:
+                item.Status = "Converted";
+                item.ConversionSummary = BuildResultSummary(update.Result);
+                break;
+            case BatchItemState.Completed:
+                item.Status = "Failed";
+                item.IsError = true;
+                item.ConversionSummary = update.Result!.ErrorMessage;
+                break;
+        }
+    }
+
+    // FR-045: Chunked/Failed here is this file's chunking-stage status,
+    // distinct from the "Converted" status Convert All already gave it - a
+    // file can be Converted but Failed at the chunking stage, or vice versa
+    // on a later run. ChunkSummary is replaced wholesale (not appended) so a
+    // retry's outcome doesn't stack onto a previous attempt's message.
+    private static void ApplyChunkProgress(
+        Dictionary<string, FileConversionViewModel> itemsByPath, BatchProgressUpdate update)
+    {
+        if (!itemsByPath.TryGetValue(update.FilePath, out var item))
+        {
+            return;
+        }
+
+        switch (update.State)
+        {
+            case BatchItemState.Started:
+                item.Status = "Chunking";
+                break;
+            case BatchItemState.Cancelled:
+                item.Status = "Cancelled";
+                break;
+            case BatchItemState.Completed when update.Result!.Success:
+                item.Status = "Chunked";
+                item.ChunkSummary = $"{update.Result.ChunkCount} chunk(s)";
+                break;
+            case BatchItemState.Completed:
+                item.Status = "Failed";
+                item.IsError = true;
+                item.ChunkSummary = $"Chunking failed: {update.Result!.ErrorMessage}";
+                break;
+        }
+    }
+
+    // Shared by Convert All, Generate Chunks, and Retry (FR-022-025/FR-030/
+    // FR-037/NFR-011) so all three go through the same IsBusy/cancellation/
+    // progress plumbing instead of duplicating it.
     private async Task RunBatchAsync(
         IReadOnlyList<string> filePaths,
         Func<string, CancellationToken, Task<ConversionResult>> operation,

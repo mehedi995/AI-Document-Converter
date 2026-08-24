@@ -28,6 +28,16 @@ public partial class App : System.Windows.Application
         AppSettingsBootstrapper.EnsureSettingsFileExists();
         SerilogConfigurator.Configure(AppSettingsBootstrapper.ReadLogDirectoryForBootstrap());
 
+        // FR-031 last-resort safety net: every failure point ConversionService/
+        // BatchService/PythonEngineClient know about already returns a safe,
+        // categorized message (FR-029) rather than throwing - these three
+        // handlers only catch a genuine, unanticipated bug elsewhere (a XAML
+        // binding, an import-path edge case, ...) so one never reaches the
+        // user as a raw stack trace or crash dialog.
+        DispatcherUnhandledException += OnDispatcherUnhandledException;
+        AppDomain.CurrentDomain.UnhandledException += OnAppDomainUnhandledException;
+        TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+
         Log.Information("Application starting");
 
         var services = new ServiceCollection();
@@ -106,5 +116,40 @@ public partial class App : System.Windows.Application
     {
         var window = new StartupErrorWindow(message);
         window.ShowDialog();
+    }
+
+    // FR-031: the full exception (with stack trace) goes to the log only -
+    // the MessageBox text is always this one fixed, generic sentence, never
+    // ex.Message/ex.ToString(), so an exception message that happens to
+    // contain a file path or library internals can't leak into the UI here.
+    private const string UnexpectedErrorMessage =
+        "An unexpected error occurred. You can keep working, but if this keeps happening, " +
+        "please restart the application and check the log files.";
+
+    private void OnDispatcherUnhandledException(object sender, System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e)
+    {
+        Log.Error(e.Exception, "Unhandled exception on the UI thread");
+        MessageBox.Show(UnexpectedErrorMessage, "AI Document Converter", MessageBoxButton.OK, MessageBoxImage.Error);
+
+        // The exception interrupted one command/event handler, not global
+        // application state (BR-006's "one failure doesn't stop everything"
+        // spirit) - marking it handled keeps the rest of the session usable
+        // instead of force-closing and losing the user's imported batch.
+        e.Handled = true;
+    }
+
+    private void OnAppDomainUnhandledException(object sender, UnhandledExceptionEventArgs e)
+    {
+        // Raised off the UI thread and always fatal (the CLR is already
+        // terminating the process by the time this fires) - log only, no
+        // MessageBox: WPF's dispatcher isn't guaranteed to still be pumping
+        // messages at this point.
+        Log.Error(e.ExceptionObject as Exception, "Unhandled exception outside the UI thread");
+    }
+
+    private void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
+    {
+        Log.Error(e.Exception, "Unobserved exception from a background Task");
+        e.SetObserved();
     }
 }
