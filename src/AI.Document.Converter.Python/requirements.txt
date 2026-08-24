@@ -1,0 +1,8 @@
+# Runtime dependencies for the bundled Python engine (docs/01-BRD.md Section 9).
+# Added incrementally per docs/12-DEVELOPMENT-ROADMAP.md phase, pinned to an exact
+# version once introduced (docs/18-RISK-ASSESSMENT.md R-04) - none are needed yet
+# since Phase 1's dispatch.py uses only the standard library.
+#
+# Phase 3 (Document Extraction) will add: pymupdf, python-docx, openpyxl, pandas,
+# python-pptx, markdownify
+# Phase 6 (Token Estimation) will add: tiktoken

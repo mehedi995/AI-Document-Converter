@@ -1,0 +1,10 @@
+﻿<Application x:Class="AI.Document.Converter.Wpf.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:AI.Document.Converter.Wpf">
+    <!-- No StartupUri: OnStartup builds the DI container and runs the FR-038
+         health check before any window is shown. -->
+    <Application.Resources>
+
+    </Application.Resources>
+</Application>

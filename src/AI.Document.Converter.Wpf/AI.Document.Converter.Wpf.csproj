@@ -1,0 +1,31 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\AI.Document.Converter.Application\AI.Document.Converter.Application.csproj" />
+    <ProjectReference Include="..\AI.Document.Converter.Domain\AI.Document.Converter.Domain.csproj" />
+    <ProjectReference Include="..\AI.Document.Converter.Infrastructure\AI.Document.Converter.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.11" />
+  </ItemGroup>
+
+  <!-- ADR-001: copy the bundled Python engine into this app's own output folder
+       if it has been built (see scripts/build-python-engine.ps1). Condition keeps
+       a plain `dotnet build` working for someone who hasn't run PyInstaller yet. -->
+  <ItemGroup>
+    <None Include="..\AI.Document.Converter.Python\dist\AIDocumentConverter.PythonEngine.exe"
+          Condition="Exists('..\AI.Document.Converter.Python\dist\AIDocumentConverter.PythonEngine.exe')"
+          Link="PythonEngine\AIDocumentConverter.PythonEngine.exe"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+
+</Project>

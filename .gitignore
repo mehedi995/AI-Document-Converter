@@ -1,0 +1,18 @@
+# .NET build output
+bin/
+obj/
+*.user
+.vs/
+
+# Python build artifacts (rebuilt via scripts/build-python-engine.ps1, not committed)
+src/AI.Document.Converter.Python/build/
+src/AI.Document.Converter.Python/dist/
+__pycache__/
+*.pyc
+
+# Local Claude Code session/tooling state, not project source
+.claude/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
