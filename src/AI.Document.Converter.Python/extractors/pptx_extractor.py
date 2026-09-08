@@ -6,6 +6,7 @@ from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pptx.exc import PackageNotFoundError
 
+from extractors import model
 from extractors.common import (
     ExtractionError,
     check_file_accessible,
@@ -77,16 +78,60 @@ def extract(file_path):
             }
         )
 
-    return {
-        "metadata": {
-            "sourceFilePath": file_path,
-            "fileType": "pptx",
-            "createdDate": file_created_date_iso(file_path),
-            "convertedDate": converted_date_iso(),
-            "pageCount": None,
-            "slideCount": len(presentation.slides),
-            "sheetCount": None,
-            "author": normalize_optional_text(presentation.core_properties.author),
-        },
-        "sections": sections,
+    warnings = []
+
+    slides_without_text = [
+        section["location"]["slideNumber"]
+        for section in sections
+        if any(block.get("type") == "unextractableText" for block in section["blocks"])
+    ]
+    if slides_without_text:
+        warnings.append(
+            model.warning(
+                model.NO_EXTRACTABLE_TEXT,
+                model.ERROR,
+                (
+                    f"{len(slides_without_text)} of {len(sections)} slide(s) contained no "
+                    f"extractable text (typically image-only slides). OCR is not enabled, so "
+                    f"that content was not recovered."
+                ),
+                location=model.location(slide_number=slides_without_text[0]),
+                details={
+                    "slidesWithoutText": ",".join(str(s) for s in slides_without_text[:50]),
+                    "slidesWithoutTextCount": len(slides_without_text),
+                    "totalSlides": len(sections),
+                },
+            )
+        )
+
+    images_omitted = sum(
+        1
+        for section in sections
+        for block in section["blocks"]
+        if block.get("type") == "imagePlaceholder"
+    )
+    if images_omitted:
+        warnings.append(
+            model.warning(
+                model.IMAGE_OMITTED,
+                model.INFO,
+                (
+                    f"{images_omitted} embedded image(s) were not extracted. A placeholder marks "
+                    f"each position in the output."
+                ),
+                details={"imageCount": images_omitted},
+            )
+        )
+
+    metadata = {
+        "sourceFilePath": file_path,
+        "fileType": "pptx",
+        "createdDate": file_created_date_iso(file_path),
+        "convertedDate": converted_date_iso(),
+        "pageCount": None,
+        "slideCount": len(presentation.slides),
+        "sheetCount": None,
+        "author": normalize_optional_text(presentation.core_properties.author),
     }
+
+    return model.document(metadata, sections, warnings)

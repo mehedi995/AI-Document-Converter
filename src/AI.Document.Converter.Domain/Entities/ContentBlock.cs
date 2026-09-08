@@ -18,6 +18,16 @@ namespace AI.Document.Converter.Domain.Entities;
 [JsonDerivedType(typeof(UnextractableTextBlock), "unextractableText")]
 public abstract class ContentBlock
 {
+    // Model v2 (SaaS audit B-04). Stable within a given extraction of a given
+    // source: the engine derives it from the block's position ("s3-b1"), so
+    // re-extracting the same bytes with the same engine version yields the same
+    // IDs. That is what lets a chunk, a warning, and a source highlight all
+    // point at the same block.
+    //
+    // Nullable rather than required because a v1 payload (and every existing
+    // test that constructs a block by hand) predates it; treat null as
+    // "unidentified", not as an error.
+    public string? BlockId { get; init; }
 }
 
 public sealed class ParagraphBlock : ContentBlock

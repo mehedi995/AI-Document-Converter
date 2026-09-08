@@ -1,5 +1,7 @@
 using AI.Document.Converter.Application.Interfaces;
 using AI.Document.Converter.Domain.Entities;
+using AI.Document.Converter.Domain.Enums;
+using AI.Document.Converter.Domain.Exceptions;
 using AI.Document.Converter.Domain.ValueObjects;
 
 namespace AI.Document.Converter.Application.Services;
@@ -28,6 +30,13 @@ public sealed class ChunkGenerator : IChunkGenerator
         string sourceFileName,
         CancellationToken cancellationToken)
     {
+        // SR-INT-6 (audit C-09): reject a degenerate configuration here rather
+        // than producing quietly useless chunks from it.
+        if (!options.TryValidate(out var validationError))
+        {
+            throw new DocumentConversionException(validationError!, ErrorCategory.ConversionFailure);
+        }
+
         var units = Flatten(document);
         if (units.Count == 0)
         {

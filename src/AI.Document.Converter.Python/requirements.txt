@@ -1,9 +1,30 @@
 # Runtime dependencies for the bundled Python engine (docs/01-BRD.md Section 9).
-# Added incrementally per docs/12-DEVELOPMENT-ROADMAP.md phase, pinned to an exact
-# version once introduced (docs/18-RISK-ASSESSMENT.md R-04).
+# Pinned to an exact version once introduced (docs/18-RISK-ASSESSMENT.md R-04).
+#
+# LICENCE POLICY (SaaS audit F-01): every runtime dependency here must be
+# permissively licensed. Nothing copyleft, and specifically nothing AGPL - the
+# cloud edition serves conversion over a network, which triggers AGPL section
+# 13's source-disclosure obligation for the combined work. Subprocess or
+# container separation does NOT discharge that obligation.
+#
+#   pdfplumber    MIT
+#   pdfminer.six  MIT          (pulled in by pdfplumber; text/layout/encryption)
+#   Pillow        MIT-CMU      (pulled in by pdfplumber)
+#   pypdfium2     BSD-3-Clause / Apache-2.0  (pulled in by pdfplumber)
+#   python-docx   MIT
+#   openpyxl      MIT
+#   python-pptx   MIT
+#   tiktoken      MIT
+#
+# Before adding a dependency, check its licence and record it above.
 
 # Phase 3 (Document Extraction)
-pymupdf==1.28.2
+# pdfplumber replaced pymupdf, which is dual-licensed AGPL-3.0 / Artifex
+# commercial and therefore cannot ship in a paid network service without either
+# buying the Artifex licence or open-sourcing this service. Measured table
+# fidelity was identical on the benchmark corpus - see
+# docs/saas/02-PDF-ENGINE-BENCHMARK.md for the numbers and their limitations.
+pdfplumber==0.11.10
 python-docx==1.2.0
 openpyxl==3.1.5
 python-pptx==1.0.2

@@ -18,6 +18,7 @@ from docx.oxml.text.paragraph import CT_P
 from docx.table import Table
 from docx.text.paragraph import Paragraph
 
+from extractors import model
 from extractors.common import (
     ExtractionError,
     check_file_accessible,
@@ -172,16 +173,52 @@ def extract(file_path):
 
     core_properties = document.core_properties
 
-    return {
-        "metadata": {
-            "sourceFilePath": file_path,
-            "fileType": "docx",
-            "createdDate": file_created_date_iso(file_path),
-            "convertedDate": converted_date_iso(),
-            "pageCount": None,
-            "slideCount": None,
-            "sheetCount": None,
-            "author": normalize_optional_text(core_properties.author),
-        },
-        "sections": sections,
+    warnings = []
+
+    images_omitted = sum(
+        1
+        for section in sections
+        for block in section["blocks"]
+        if block.get("type") == "imagePlaceholder"
+    )
+    if images_omitted:
+        warnings.append(
+            model.warning(
+                model.IMAGE_OMITTED,
+                model.INFO,
+                (
+                    f"{images_omitted} embedded image(s) were not extracted. A placeholder marks "
+                    f"each position in the output."
+                ),
+                details={"imageCount": images_omitted},
+            )
+        )
+
+    has_text = any(
+        block.get("type") != "unextractableText"
+        for section in sections
+        for block in section["blocks"]
+    )
+    if not has_text:
+        warnings.append(
+            model.warning(
+                model.NO_EXTRACTABLE_TEXT,
+                model.ERROR,
+                "No text content could be extracted from this document.",
+            )
+        )
+
+    metadata = {
+        "sourceFilePath": file_path,
+        "fileType": "docx",
+        "createdDate": file_created_date_iso(file_path),
+        "convertedDate": converted_date_iso(),
+        # No reliable layout-independent page count exists for DOCX, so the
+        # field is omitted rather than invented (SaaS SR-INT / audit C-05).
+        "pageCount": None,
+        "slideCount": None,
+        "sheetCount": None,
+        "author": normalize_optional_text(core_properties.author),
     }
+
+    return model.document(metadata, sections, warnings)

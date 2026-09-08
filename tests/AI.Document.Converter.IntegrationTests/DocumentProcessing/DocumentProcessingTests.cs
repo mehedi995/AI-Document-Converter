@@ -89,8 +89,12 @@ public class DocumentProcessingTests
         Assert.Contains("[example reference](https://example.com/reference)", paragraph.Text);
     }
 
+    // SR-INT-1 (supersedes the legacy FR-041 summarization default). Before
+    // this, the 251-row sheet came back as 5 rows reported as a plain success -
+    // undisclosed data loss (SaaS audit C-01). Faithful mode is now the default
+    // and must return the sheet in full.
     [Fact]
-    public async Task ExcelDocumentProcessor_ExtractsSample_HandlesFormulasMergesAndSummarization()
+    public async Task ExcelDocumentProcessor_ExtractsSample_ReturnsEveryRowAndPreservesFormulasAndMerges()
     {
         var processor = new ExcelDocumentProcessor(_pythonEngineClient);
 
@@ -110,13 +114,81 @@ public class DocumentProcessingTests
         Assert.Equal("Merged note spanning two columns", dataTable.Rows[3][0]);
         Assert.Equal("Merged note spanning two columns", dataTable.Rows[3][1]);
 
-        // FR-041: the oversized sheet is summarized, with a note and a
-        // truncated row count, not the full 251 rows.
+        // The large sheet is now returned COMPLETE - 251 sheet rows = 1 header
+        // row + 250 data rows - with no explanatory "summarization" prose block
+        // standing in for the missing content.
         var largeSection = document.Sections[1];
-        var note = Assert.IsType<ParagraphBlock>(largeSection.Blocks.OfType<ParagraphBlock>().Single());
-        Assert.Contains("summarization", note.Text);
+        Assert.Empty(largeSection.Blocks.OfType<ParagraphBlock>());
         var largeTable = Assert.IsType<TableBlock>(largeSection.Blocks.OfType<TableBlock>().Single());
-        Assert.True(largeTable.Rows.Count < 250);
+        Assert.Equal(250, largeTable.Rows.Count);
+
+        // A complete extraction must not claim anything was lost.
+        Assert.DoesNotContain(document.Warnings, w => w.Code == WarningCode.SheetTruncated);
+        Assert.False(document.HasUnrecoveredContent);
+    }
+
+    // Model v2 contract (SaaS audit B-04/B-06): the versions and the stable
+    // block IDs must survive the Python -> JSON -> C# round trip, because
+    // chunks, warnings and source highlights all anchor to them.
+    [Fact]
+    public async Task ExcelDocumentProcessor_ExtractsSample_PopulatesModelV2ContractFields()
+    {
+        var processor = new ExcelDocumentProcessor(_pythonEngineClient);
+
+        var document = await processor.ExtractAsync(SamplePath("sample.xlsx"), CancellationToken.None);
+
+        Assert.Equal("2.0", document.ModelVersion);
+        Assert.False(string.IsNullOrWhiteSpace(document.EngineVersion));
+
+        var blockIds = document.Sections
+            .SelectMany(section => section.Blocks)
+            .Select(block => block.BlockId)
+            .ToList();
+
+        Assert.All(blockIds, id => Assert.False(string.IsNullOrWhiteSpace(id)));
+        Assert.Equal(blockIds.Count, blockIds.Distinct().Count());
+    }
+
+    // SR-INT-3 (SaaS audit C-03): a page with no extractable text used to
+    // produce only an inline placeholder, leaving the job to report plain
+    // success. It must now also raise an Error-severity warning, which is what
+    // forces "completed with warnings" instead.
+    [Fact]
+    public async Task PdfDocumentProcessor_PageWithNoText_RaisesErrorSeverityWarning()
+    {
+        var processor = new PdfDocumentProcessor(_pythonEngineClient);
+
+        var document = await processor.ExtractAsync(SamplePath("sample.pdf"), CancellationToken.None);
+
+        var warning = Assert.Single(
+            document.Warnings.Where(w => w.Code == WarningCode.NoExtractableText));
+
+        Assert.Equal(WarningSeverity.Error, warning.Severity);
+        Assert.True(document.HasUnrecoveredContent);
+
+        // The warning has to say WHAT was not recovered, not merely that
+        // something wasn't.
+        Assert.NotNull(warning.Details);
+        Assert.Equal("1", warning.Details!["pagesWithoutTextCount"]);
+        Assert.Equal("3", warning.Details!["totalPages"]);
+    }
+
+    // SR-INT-4: an omitted image must be visible as a warning, not only as an
+    // inline placeholder a reader might scroll past.
+    [Fact]
+    public async Task PdfDocumentProcessor_OmittedImages_AreReportedAsInfoWarning()
+    {
+        var processor = new PdfDocumentProcessor(_pythonEngineClient);
+
+        var document = await processor.ExtractAsync(SamplePath("image-sample.pdf"), CancellationToken.None);
+
+        var warning = Assert.Single(
+            document.Warnings.Where(w => w.Code == WarningCode.ImageOmitted));
+
+        // Info, not Error: the image is marked in place and no *text* was lost,
+        // so this must not flip the job into "completed with warnings".
+        Assert.Equal(WarningSeverity.Info, warning.Severity);
+        Assert.False(document.HasUnrecoveredContent);
     }
 
     [Fact]

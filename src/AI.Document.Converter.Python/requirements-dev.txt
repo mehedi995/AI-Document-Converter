@@ -1,0 +1,23 @@
+# Development-only dependencies. NEVER install these into the shipped engine
+# image or the PyInstaller bundle.
+#
+# pymupdf is AGPL-3.0 / Artifex dual-licensed and was removed from the runtime
+# for exactly that reason (SaaS audit F-01). It is retained here as a
+# DEVELOPMENT tool only, for two purposes:
+#
+#   1. scripts/generate-samples.py and scripts/generate-table-benchmark.py use
+#      it to author synthetic test fixtures.
+#   2. scripts/benchmark-pdf-tables.py uses it as the comparison baseline, so
+#      the replacement's fidelity can keep being re-measured rather than taken
+#      on trust.
+#
+# Neither use distributes it nor serves it over a network, so AGPL section 13 is
+# not engaged. If that ever changes - for example if fixture generation moves
+# into a hosted service - this dependency has to be revisited.
+#
+# Verify before every release that the shipped bundle contains no pymupdf:
+#   python -c "import pymupdf" should FAIL inside the release image.
+-r requirements.txt
+
+pymupdf==1.28.2
+pyinstaller==6.22.2

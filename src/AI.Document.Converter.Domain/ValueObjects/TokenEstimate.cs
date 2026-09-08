@@ -14,8 +14,14 @@ public sealed class TokenEstimate
 
     // May be zero or negative (FR-015) - reduction is not guaranteed for every
     // document, and callers must not assume a positive value.
-    public double ReductionPercentGpt4oStyle =>
+    //
+    // NULL when the baseline is zero (SR-INT-5, audit C-11). There is no
+    // percentage of nothing, and the previous behavior of returning 0 was worse
+    // than a crash would have been: it silently asserted "0% reduction", a
+    // specific and false measurement, where the honest answer is "not
+    // applicable". Callers must render null as N/A, never coalesce it to 0.
+    public double? ReductionPercentGpt4oStyle =>
         OriginalGpt4oStyle == 0
-            ? 0
+            ? null
             : (OriginalGpt4oStyle - ConvertedGpt4oStyle) / (double)OriginalGpt4oStyle * 100;
 }

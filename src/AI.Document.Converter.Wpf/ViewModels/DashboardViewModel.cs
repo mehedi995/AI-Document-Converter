@@ -419,10 +419,17 @@ public sealed class DashboardViewModel : ViewModelBase
             return $"Saved to {result.OutputPath}";
         }
 
+        // SR-INT-5: a null reduction means the baseline was empty, so there is
+        // no percentage to report. Showing "N/A" is the honest rendering -
+        // formatting a null double? directly would silently print "(% reduction)".
+        var reduction = tokens.ReductionPercentGpt4oStyle is { } percent
+            ? $"{percent:0.#}% reduction"
+            : "reduction N/A (empty baseline)";
+
         return
             $"Claude-style (est.): {tokens.OriginalClaudeStyle:N0} → {tokens.ConvertedClaudeStyle:N0} tokens | " +
             $"GPT-4o-style (est.): {tokens.OriginalGpt4oStyle:N0} → {tokens.ConvertedGpt4oStyle:N0} tokens " +
-            $"({tokens.ReductionPercentGpt4oStyle:0.#}% reduction) → {Path.GetFileName(result.OutputPath)}";
+            $"({reduction}) → {Path.GetFileName(result.OutputPath)}";
     }
 
     private static string? BuildImportStatusMessage(ImportResult result)

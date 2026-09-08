@@ -24,9 +24,11 @@ from extractors.common import ExtractionError
 # Each entry is (module name, attribute name) rather than an imported function
 # reference - ADR-001 starts one process per request, so a bare "tokenize" or
 # "health_check" call has no business paying to import all four extraction
-# libraries (pymupdf/python-docx/openpyxl/python-pptx measured at ~86MB
-# combined) just because they're module-level imports. Only the one extractor
-# a given "extract" request actually needs gets imported, on demand.
+# libraries (pdfplumber/python-docx/openpyxl/python-pptx) just because they're
+# module-level imports. Only the one extractor a given "extract" request
+# actually needs gets imported, on demand. The ~86MB figure was measured when
+# PDF was handled by pymupdf; the argument holds just as well for pdfplumber,
+# which pulls in pdfminer.six and Pillow.
 EXTRACTOR_MODULES_BY_FORMAT = {
     "pdf": ("extractors.pdf_extractor", "extract"),
     "docx": ("extractors.docx_extractor", "extract"),
@@ -52,6 +54,14 @@ def handle_extract(payload):
 
     module_name, attr_name = module_and_attr
     extractor = getattr(importlib.import_module(module_name), attr_name)
+
+    # Only XLSX has more than one extraction mode today (faithful vs summary,
+    # SR-INT-1). Passing the option only to the extractor that declares it keeps
+    # the other three signatures unchanged.
+    mode = payload.get("mode")
+    if mode and file_format == "xlsx":
+        return extractor(file_path, mode=mode)
+
     return extractor(file_path)
 
 
@@ -95,11 +105,15 @@ def error_response(error_category, error_message):
 
 def main():
     raw_request = sys.stdin.readline()
-    # Some libraries print informational messages directly to stdout (observed:
-    # pymupdf's find_tables() prints a "consider using pymupdf_layout" notice) -
-    # that would corrupt this process's one and only JSON response line. stdout
-    # is redirected to a throwaway buffer for the entire duration of the
-    # request; real_stdout is the only stream write_response ever uses.
+    # Some libraries print informational messages directly to stdout - that
+    # would corrupt this process's one and only JSON response line. stdout is
+    # redirected to a throwaway buffer for the entire duration of the request;
+    # real_stdout is the only stream write_response ever uses.
+    #
+    # The observed case was pymupdf's find_tables() emitting a "consider using
+    # pymupdf_layout" notice, before the 2026-09 move to pdfplumber. The
+    # protection stays regardless of which parser is in use: any of them may
+    # write a diagnostic to stdout.
     real_stdout = sys.stdout
 
     try:
