@@ -17,7 +17,9 @@ public sealed class BatchService : IBatchService
         var total = filePaths.Count;
         var processed = 0;
         var successCount = 0;
+        var warningCount = 0;
         var failureCount = 0;
+        var cancelledCount = 0;
         var counterLock = new object();
 
         BatchProgressUpdate Snapshot(string filePath, BatchItemState state, ConversionResult? result)
@@ -32,7 +34,9 @@ public sealed class BatchService : IBatchService
                     TotalCount = total,
                     ProcessedCount = processed,
                     SuccessCount = successCount,
-                    FailureCount = failureCount
+                    WarningCount = warningCount,
+                    FailureCount = failureCount,
+                    CancelledCount = cancelledCount
                 };
             }
         }
@@ -58,6 +62,11 @@ public sealed class BatchService : IBatchService
                 }
                 catch (OperationCanceledException)
                 {
+                    lock (counterLock)
+                    {
+                        cancelledCount++;
+                    }
+
                     progress.Report(Snapshot(filePath, BatchItemState.Cancelled, null));
                     throw;
                 }
@@ -66,13 +75,20 @@ public sealed class BatchService : IBatchService
                 lock (counterLock)
                 {
                     processed++;
-                    if (result.Success)
+                    if (!result.Success)
                     {
-                        successCount++;
+                        failureCount++;
+                    }
+                    else if (result.HasUnrecoveredContent)
+                    {
+                        // SR-JOB-4: completed, but content was not recovered.
+                        // Counted separately from SuccessCount so the two are
+                        // never conflated in a summary the user reads.
+                        warningCount++;
                     }
                     else
                     {
-                        failureCount++;
+                        successCount++;
                     }
 
                     update = new BatchProgressUpdate
@@ -83,7 +99,9 @@ public sealed class BatchService : IBatchService
                         TotalCount = total,
                         ProcessedCount = processed,
                         SuccessCount = successCount,
-                        FailureCount = failureCount
+                        WarningCount = warningCount,
+                        FailureCount = failureCount,
+                        CancelledCount = cancelledCount
                     };
                 }
 
@@ -112,7 +130,9 @@ public sealed class BatchService : IBatchService
                 TotalFiles = total,
                 ProcessedFiles = processed,
                 SuccessCount = successCount,
-                FailureCount = failureCount
+                WarningCount = warningCount,
+                FailureCount = failureCount,
+                CancelledCount = cancelledCount
             };
         }
     }

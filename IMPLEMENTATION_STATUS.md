@@ -249,6 +249,49 @@ packages. `installer.iss` now shows the licence via `LicenseFile`.
 
 ---
 
+### Warnings surfaced end to end, bundle slimmed ✅ (increment 5)
+
+**The gap this closed.** Increment 2 added the warnings channel to the engine and the model, but
+`ConversionResult` had nowhere to put it. The warnings were being produced, deserialized into
+`DocumentModel`, and then **dropped before any caller saw them** - so a run with missing content
+still looked like a plain success to the batch service and the UI. The channel existed but was not
+connected at the far end.
+
+| Item | Change |
+|---|---|
+| **Warnings reach the caller** | `ConversionResult.Warnings` + `HasUnrecoveredContent`; `ConversionService` populates both paths, merging extraction and chunking warnings |
+| **C-08** oversized table | `WarningCode.TableExceedsChunkSize` was a **dead enum value** - defined but emitted by nothing. `ChunkGenerator` now returns `ChunkGenerationResult { Chunks, Warnings }` and raises it, anchored to the table's `BlockId` (the first real payoff of B-04) |
+| **D-03** batch summary | `BatchSummary`/`BatchProgressUpdate` gain `WarningCount` and `CancelledCount`. The four buckets are mutually exclusive and sum to `ProcessedFiles`, asserted in a test |
+| Desktop UI | Batch status message reports warnings and cancellations instead of folding them into the success count |
+| Bundle size | **131 MB → 78 MB (40%)** by excluding numpy and pandas |
+| Build script | `scripts/build-python-engine.ps1` **could not be run at all** under PowerShell 5.1; now fixed and verified end to end |
+
+**Bundle slimming.** numpy and pandas were bundled although nothing in the project imports them
+(flagged in increment 4's notices). `openpyxl` guards its numpy import in `compat/numbers.py` and
+simply sets `NUMPY = False`, so dropping it is safe for the plain str/int/float cell values this
+engine reads - verified after the change against all five formats plus tokenize, not assumed.
+
+**Build script.** It failed on pip's first stderr line: under PowerShell 5.1 with
+`$ErrorActionPreference = "Stop"`, a native command's stderr becomes a terminating
+`NativeCommandError` even when the process exits 0. My first fix used `2>&1`, which **made it
+worse** - redirecting a native command's stderr in 5.1 is itself what wraps each line in an
+ErrorRecord. The working fix is an `Invoke-Native` helper that relaxes the preference around the
+call and checks `$LASTEXITCODE`, which is the only reliable success signal for a native process.
+Both pip and PyInstaller go through it. The exclusion flags are now in the script, so the slim,
+AGPL-free bundle is reproducible rather than depending on my ad-hoc command line.
+
+**Verified:** `dotnet build` clean; **166 passed, 0 failed** (121 unit + 45 integration, up from
+160); licence gate green; script-built bundle contains 0 pymupdf/fitz/mupdf and 0 numpy/pandas
+artifacts.
+
+Six tests added: three for the oversized-table warning (including that an oversized *paragraph*
+must not raise it, and that a within-size table raises nothing), two for the batch buckets
+(including that an Info-severity note must **not** demote a file out of the success count), and one
+integration test proving warnings survive Python → JSON → `DocumentModel` → `ConversionResult`
+against the real bundled engine.
+
+---
+
 ## 2. Not started
 
 Phases 1–4 in full: web host, identity/workspaces, upload, persisted jobs and durable queue, results
@@ -298,22 +341,26 @@ worker request/result contract. Add `global.json` to pin the SDK.
 
 **Decision-independent work that can proceed in parallel** (in priority order):
 
-1. **Reconcile `installer.iss` `AppPublisher`** with the now-personal copyright holder (see above).
-2. **Drop numpy/pandas from the bundle** via PyInstaller `--exclude-module`, then re-verify xlsx
-   extraction still works — ~40 MB and two dependencies of unnecessary distribution surface.
-3. **Plumb extraction mode through .NET** — add `mode` to `ExtractRequestPayload` so summary mode is
-   reachable and its Error-severity warning is covered by an integration test.
-3. **D-03** batch summary: add cancelled and warning counts.
-4. **D-05** extract once and fan out, instead of `GenerateChunksAsync` re-extracting from scratch.
-5. **C-08** oversized-table warning at chunk time, using the `TableExceedsChunkSize` code already
-   defined but not yet emitted.
-6. Real Linux verification of the engine once a container runtime exists (A-03 follow-up).
+1. **Plumb extraction mode through .NET** — add `mode` to `ExtractRequestPayload` so XLSX summary
+   mode is reachable from the host and its Error-severity `sheetTruncated` warning is covered by an
+   integration test. Today .NET can only obtain faithful extraction, which is the safe default but
+   leaves that warning path proven at the Python level only.
+2. **D-05** extract once and fan out. `GenerateChunksAsync` still re-extracts the document from
+   scratch, spawning a second engine subprocess for a file `ConvertAsync` already parsed — 2x
+   metered compute and latency per chunked conversion. Deferred until the SaaS pipeline exists,
+   because the desktop flow deliberately calls the two operations independently.
+3. **B-08** `createdDate` uses `os.path.getctime`, which on a server is upload time, not authorship
+   time. Prefer embedded document metadata, else omit.
+4. Real Linux verification of the engine once a container runtime exists (A-03 follow-up). The
+   platform guard is proven only by simulation on Windows so far.
 
 ### Notes for whoever picks this up
 
 - Run the routine suite as `dotnet test --filter "Category!=Performance"`. The Performance category
   contains a known-flaky 100 MB benchmark (see §1).
-- After **any** Python change, rebuild the bundle or the integration tests will silently test the old
-  engine. `scripts/build-python-engine.ps1` fails under PowerShell 5.1 because pip writes to stderr;
-  invoke PyInstaller directly with the script's arguments plus `--hidden-import extractors.model`,
-  or fix the script to tolerate pip's stderr.
+- After **any** Python change, run `scripts/build-python-engine.ps1` or the integration tests will
+  silently test the previously built engine — they run the bundled exe, not your source. This bit
+  once already (increment 1).
+- The build script carries load-bearing `--exclude-module` flags (pymupdf/fitz for licensing,
+  numpy/pandas for size). Do not drop them when editing it; `scripts/check-licences.py` catches the
+  licensing half, nothing catches the size half automatically.

@@ -1,4 +1,5 @@
 using AI.Document.Converter.Application.Interfaces;
+using AI.Document.Converter.Application.Models;
 using AI.Document.Converter.Domain.Entities;
 using AI.Document.Converter.Domain.Enums;
 using AI.Document.Converter.Domain.Exceptions;
@@ -24,7 +25,7 @@ public sealed class ChunkGenerator : IChunkGenerator
         _tokenCounter = tokenCounter;
     }
 
-    public async Task<IReadOnlyList<DocumentChunk>> GenerateChunksAsync(
+    public async Task<ChunkGenerationResult> GenerateChunksAsync(
         DocumentModel document,
         ChunkOptions options,
         string sourceFileName,
@@ -40,17 +41,21 @@ public sealed class ChunkGenerator : IChunkGenerator
         var units = Flatten(document);
         if (units.Count == 0)
         {
-            return [];
+            return new ChunkGenerationResult { Chunks = [] };
         }
 
         var tokenCounts = await _tokenCounter.CountBatchAsync(
             units.Select(u => u.Text).ToList(), cancellationToken);
 
         var measuredUnits = units
-            .Zip(tokenCounts, (unit, count) => new MeasuredUnit(unit.Text, count))
+            .Zip(tokenCounts, (unit, count) => new MeasuredUnit(unit.Text, count, unit.BlockId, unit.Location, unit.IsTable))
             .ToList();
 
-        return BuildChunks(measuredUnits, options, sourceFileName);
+        return new ChunkGenerationResult
+        {
+            Chunks = BuildChunks(measuredUnits, options, sourceFileName),
+            Warnings = BuildOversizedTableWarnings(measuredUnits, options)
+        };
     }
 
     private static List<AtomicUnit> Flatten(DocumentModel document)
@@ -68,7 +73,7 @@ public sealed class ChunkGenerator : IChunkGenerator
             {
                 if (prefix.Length > 0)
                 {
-                    units.Add(new AtomicUnit(prefix));
+                    units.Add(new AtomicUnit(prefix, null, section.Location, false));
                 }
 
                 continue;
@@ -76,8 +81,13 @@ public sealed class ChunkGenerator : IChunkGenerator
 
             for (var i = 0; i < section.Blocks.Count; i++)
             {
-                var blockText = MarkdownBlockRenderer.RenderBlock(section.Blocks[i]);
-                units.Add(new AtomicUnit(i == 0 ? prefix + blockText : blockText));
+                var block = section.Blocks[i];
+                var blockText = MarkdownBlockRenderer.RenderBlock(block);
+                units.Add(new AtomicUnit(
+                    i == 0 ? prefix + blockText : blockText,
+                    block.BlockId,
+                    section.Location,
+                    block is TableBlock));
             }
         }
 
@@ -155,6 +165,44 @@ public sealed class ChunkGenerator : IChunkGenerator
         return chunks;
     }
 
+    // SR-INT-7 (audit C-08). A table too big for the configured chunk size is
+    // kept intact in its own chunk rather than split - that part already
+    // worked - but nothing said so. A consumer with a hard context limit needs
+    // to know the chunk exceeds it, because "the table survived" and "the
+    // chunk is usable downstream" are different claims.
+    //
+    // Warning, not Error: no content was lost. Only tables are reported; an
+    // oversized paragraph is not a structural hazard in the same way, and
+    // WarningCode.TableExceedsChunkSize would be the wrong label for it.
+    private static List<ExtractionWarning> BuildOversizedTableWarnings(
+        IReadOnlyList<MeasuredUnit> units,
+        ChunkOptions options)
+    {
+        var warnings = new List<ExtractionWarning>();
+
+        foreach (var unit in units.Where(u => u.IsTable && u.TokenCount > options.ChunkSizeTokens))
+        {
+            warnings.Add(new ExtractionWarning
+            {
+                Code = WarningCode.TableExceedsChunkSize,
+                Severity = WarningSeverity.Warning,
+                Message =
+                    $"A table needs {unit.TokenCount} tokens, more than the {options.ChunkSizeTokens}-token "
+                    + "chunk size. It is kept whole in a chunk of its own rather than split, so that chunk "
+                    + "is larger than the configured size and may exceed a provider's limit.",
+                BlockId = unit.BlockId,
+                Location = unit.Location,
+                Details = new Dictionary<string, string>
+                {
+                    ["tableTokens"] = unit.TokenCount.ToString(),
+                    ["chunkSizeTokens"] = options.ChunkSizeTokens.ToString()
+                }
+            });
+        }
+
+        return warnings;
+    }
+
     // Whole trailing units (never a partial unit), so overlap never splits a
     // table/heading+content pairing either - it just repeats them verbatim at
     // the start of the next chunk (AC-014: no content lost across chunks).
@@ -179,7 +227,8 @@ public sealed class ChunkGenerator : IChunkGenerator
         return result;
     }
 
-    private sealed record AtomicUnit(string Text);
+    private sealed record AtomicUnit(string Text, string? BlockId, SourceLocation? Location, bool IsTable);
 
-    private sealed record MeasuredUnit(string Text, int TokenCount);
+    private sealed record MeasuredUnit(
+        string Text, int TokenCount, string? BlockId, SourceLocation? Location, bool IsTable);
 }

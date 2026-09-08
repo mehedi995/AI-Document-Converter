@@ -1,5 +1,6 @@
 using AI.Document.Converter.Application.Interfaces;
 using AI.Document.Converter.Application.Services;
+using AI.Document.Converter.Domain.Enums;
 using AI.Document.Converter.Domain.ValueObjects;
 using AI.Document.Converter.Infrastructure.DocumentProcessing.Pdf;
 using AI.Document.Converter.Infrastructure.DocumentProcessing.Text;
@@ -43,6 +44,33 @@ public class ConversionServiceTests : IDisposable
             NullLogger<ConversionService>.Instance);
 
         _outputDirectory = Path.Combine(Path.GetTempPath(), $"ai-doc-converter-test-{Guid.NewGuid()}");
+    }
+
+    // The whole point of the warnings channel is that the CALLER can see it.
+    // Warnings were reaching DocumentModel but ConversionResult had nowhere to
+    // put them, so they were produced by the engine and then dropped before
+    // anyone could act on them - a run with missing content still looked like
+    // a plain success to every consumer.
+    //
+    // Exercises the full path: Python engine -> JSON -> DocumentModel ->
+    // ConversionResult, against the real bundled engine.
+    [Fact]
+    public async Task ConvertAsync_RealPdfWithBlankPage_SurfacesWarningsOnTheResult()
+    {
+        var sourcePath = Path.Combine(RepoPaths.SamplesDirectory(), "sample.pdf");
+
+        var result = await _service.ConvertAsync(
+            sourcePath, _outputDirectory, new OutputPathResolver(), CancellationToken.None);
+
+        Assert.True(result.Success, result.ErrorMessage);
+
+        var warning = Assert.Single(
+            result.Warnings.Where(w => w.Code == WarningCode.NoExtractableText));
+        Assert.Equal(WarningSeverity.Error, warning.Severity);
+
+        // Success AND incomplete at the same time - the distinction the batch
+        // summary and the SaaS job status both depend on.
+        Assert.True(result.HasUnrecoveredContent);
     }
 
     [Fact]

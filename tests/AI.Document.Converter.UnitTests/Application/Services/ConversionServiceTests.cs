@@ -1,4 +1,5 @@
 using AI.Document.Converter.Application.Interfaces;
+using AI.Document.Converter.Application.Models;
 using AI.Document.Converter.Application.Services;
 using AI.Document.Converter.Domain.Entities;
 using AI.Document.Converter.Domain.Enums;
@@ -145,7 +146,7 @@ public class ConversionServiceTests
         _chunkGenerator
             .Setup(c => c.GenerateChunksAsync(
                 SampleDocument, It.IsAny<ChunkOptions>(), "report.md", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(chunks);
+            .ReturnsAsync(new ChunkGenerationResult { Chunks = chunks });
 
         var options = new ChunkOptions { ChunkSizeTokens = 512, OverlapTokens = 50 };
         var result = await _service.GenerateChunksAsync(

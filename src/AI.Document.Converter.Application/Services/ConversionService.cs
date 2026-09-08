@@ -57,7 +57,8 @@ public sealed class ConversionService : IConversionService
                 OutputPath = outputPath,
                 Tokens = tokens,
                 CompletedStages = PipelineStage.Converted,
-                Metadata = document.Metadata
+                Metadata = document.Metadata,
+                Warnings = document.Warnings
             };
         });
 
@@ -71,18 +72,23 @@ public sealed class ConversionService : IConversionService
             var document = await _processorResolver.Resolve(filePath).ExtractAsync(filePath, cancellationToken);
 
             var baseName = Path.GetFileNameWithoutExtension(filePath);
-            var chunks = await _chunkGenerator.GenerateChunksAsync(
+            var chunkResult = await _chunkGenerator.GenerateChunksAsync(
                 document, chunkOptions, $"{baseName}.md", cancellationToken);
 
             var chunksDirectory = Path.Combine(outputDirectory, "chunks", baseName);
-            await _chunkFileWriter.WriteAsync(chunksDirectory, chunks, cancellationToken);
+            await _chunkFileWriter.WriteAsync(chunksDirectory, chunkResult.Chunks, cancellationToken);
 
             return new ConversionResult
             {
                 Success = true,
                 OutputPath = chunksDirectory,
-                ChunkCount = chunks.Count,
-                CompletedStages = PipelineStage.Chunked
+                ChunkCount = chunkResult.Chunks.Count,
+                CompletedStages = PipelineStage.Chunked,
+                Metadata = document.Metadata,
+                // Extraction warnings AND chunking warnings: the user is
+                // chunking one document, and both kinds are about that
+                // document's fitness for downstream use.
+                Warnings = [.. document.Warnings, .. chunkResult.Warnings]
             };
         });
 

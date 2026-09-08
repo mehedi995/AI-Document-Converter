@@ -45,6 +45,75 @@ public class BatchServiceTests
         Assert.Equal(0, summary.FailureCount);
     }
 
+    // SR-JOB-4 (audit D-03). Before this, a file that completed but lost
+    // content to a scanned page was counted as a plain success, so a batch
+    // could report "10 converted" when several outputs were incomplete.
+    [Fact]
+    public async Task RunAsync_FileCompletedWithErrorSeverityWarning_CountsAsWarningNotSuccess()
+    {
+        var incomplete = new ConversionResult
+        {
+            Success = true,
+            Warnings =
+            [
+                new ExtractionWarning
+                {
+                    Code = WarningCode.NoExtractableText,
+                    Severity = WarningSeverity.Error,
+                    Message = "Scanned page, no text recovered."
+                }
+            ]
+        };
+
+        var summary = await _service.RunAsync(
+            ["a.pdf", "b.pdf"],
+            (path, _) => Task.FromResult(
+                path == "a.pdf" ? incomplete : new ConversionResult { Success = true }),
+            maxParallelism: 1,
+            new SynchronousProgress<BatchProgressUpdate>(_ => { }),
+            CancellationToken.None);
+
+        Assert.Equal(2, summary.ProcessedFiles);
+        Assert.Equal(1, summary.SuccessCount);
+        Assert.Equal(1, summary.WarningCount);
+        Assert.Equal(0, summary.FailureCount);
+        // The four buckets are mutually exclusive and must account for every
+        // processed file, or a summary can silently lose one.
+        Assert.Equal(
+            summary.ProcessedFiles,
+            summary.SuccessCount + summary.WarningCount + summary.FailureCount);
+    }
+
+    // An Info/Warning-severity note (e.g. an omitted image) means nothing was
+    // lost, so it must NOT demote the file out of the success count.
+    [Fact]
+    public async Task RunAsync_FileWithNonErrorWarning_StillCountsAsSuccess()
+    {
+        var withNote = new ConversionResult
+        {
+            Success = true,
+            Warnings =
+            [
+                new ExtractionWarning
+                {
+                    Code = WarningCode.ImageOmitted,
+                    Severity = WarningSeverity.Info,
+                    Message = "1 image was not extracted."
+                }
+            ]
+        };
+
+        var summary = await _service.RunAsync(
+            ["a.pdf"],
+            (_, _) => Task.FromResult(withNote),
+            maxParallelism: 1,
+            new SynchronousProgress<BatchProgressUpdate>(_ => { }),
+            CancellationToken.None);
+
+        Assert.Equal(1, summary.SuccessCount);
+        Assert.Equal(0, summary.WarningCount);
+    }
+
     [Fact]
     public async Task RunAsync_MixedResults_CountsSuccessAndFailureSeparately()
     {

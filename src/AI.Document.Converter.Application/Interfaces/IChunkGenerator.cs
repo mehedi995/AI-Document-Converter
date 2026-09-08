@@ -1,3 +1,4 @@
+using AI.Document.Converter.Application.Models;
 using AI.Document.Converter.Domain.Entities;
 using AI.Document.Converter.Domain.ValueObjects;
 
@@ -9,7 +10,7 @@ namespace AI.Document.Converter.Application.Interfaces;
 // re-parsed out of finished text.
 public interface IChunkGenerator
 {
-    Task<IReadOnlyList<DocumentChunk>> GenerateChunksAsync(
+    Task<ChunkGenerationResult> GenerateChunksAsync(
         DocumentModel document,
         ChunkOptions options,
         string sourceFileName,

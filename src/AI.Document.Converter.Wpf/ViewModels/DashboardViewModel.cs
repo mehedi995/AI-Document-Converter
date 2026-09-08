@@ -243,8 +243,7 @@ public sealed class DashboardViewModel : ViewModelBase
                 filePath, settings.OutputDirectory, outputPathResolver, token),
             settings.MaxParallelism,
             update => ApplyConvertProgress(itemsByPath, update),
-            summary => $"Converted {summary.SuccessCount} file(s); {summary.FailureCount} failed." +
-                       (summary.ProcessedFiles < summary.TotalFiles ? " (cancelled)" : string.Empty));
+            BuildBatchSummaryMessage("Converted"));
     }
 
     private async Task RunChunkBatchAsync(IReadOnlyList<FileConversionViewModel> items, AppSettings settings)
@@ -262,9 +261,39 @@ public sealed class DashboardViewModel : ViewModelBase
                 filePath, settings.OutputDirectory, chunkOptions, token),
             settings.MaxParallelism,
             update => ApplyChunkProgress(itemsByPath, update),
-            summary => $"Generated chunks for {summary.SuccessCount} file(s); {summary.FailureCount} failed." +
-                       (summary.ProcessedFiles < summary.TotalFiles ? " (cancelled)" : string.Empty));
+            BuildBatchSummaryMessage("Generated chunks for"));
     }
+
+    // SR-JOB-4 (audit D-03): a batch has four outcomes, not two. Folding
+    // "completed but content was not recovered" into the success count would
+    // tell the user 10 files converted cleanly when some of them are missing
+    // scanned pages - the exact false claim of completeness the warnings
+    // channel exists to prevent. Cancelled is likewise not a failure.
+    //
+    // Counts are only mentioned when non-zero, so the ordinary all-clean run
+    // still reads as one short sentence.
+    private static Func<BatchSummary, string> BuildBatchSummaryMessage(string verb) =>
+        summary =>
+        {
+            var parts = new List<string> { $"{verb} {summary.SuccessCount} file(s)" };
+
+            if (summary.WarningCount > 0)
+            {
+                parts.Add($"{summary.WarningCount} completed with warnings (content not fully recovered)");
+            }
+
+            if (summary.FailureCount > 0)
+            {
+                parts.Add($"{summary.FailureCount} failed");
+            }
+
+            if (summary.CancelledCount > 0)
+            {
+                parts.Add($"{summary.CancelledCount} cancelled");
+            }
+
+            return string.Join("; ", parts) + ".";
+        };
 
     // FR-023: with real parallelism, several files are "in progress" at
     // once, so each row tracks its own Started/Completed transition rather

@@ -22,5 +22,11 @@ public sealed class BatchProgressUpdate
 
     public required int SuccessCount { get; init; }
 
+    // Completed, but content was not fully recovered (SR-JOB-4). Counted
+    // separately from SuccessCount, never folded into it.
+    public int WarningCount { get; init; }
+
     public required int FailureCount { get; init; }
+
+    public int CancelledCount { get; init; }
 }

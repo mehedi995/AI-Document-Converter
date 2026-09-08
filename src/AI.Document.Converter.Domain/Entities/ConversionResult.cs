@@ -26,4 +26,17 @@ public sealed class ConversionResult
     // to build metadata/<name>.json without re-parsing it back out of the
     // already-written front matter.
     public DocumentMetadata? Metadata { get; init; }
+
+    // Everything the pipeline could not fully recover, from extraction
+    // (DocumentModel.Warnings) and from chunking (an oversized table).
+    // Without this the warnings were being produced and then dropped on the
+    // floor: the caller had no way to see them, so a run with missing content
+    // still looked like a plain success.
+    public IReadOnlyList<ExtractionWarning> Warnings { get; init; } = [];
+
+    // A run that recovered everything it was asked for versus one that did
+    // not. Callers must not treat Success alone as "the output is complete"
+    // (SR-INT-1, SR-INT-3).
+    public bool HasUnrecoveredContent =>
+        Warnings.Any(w => w.Severity == WarningSeverity.Error);
 }
