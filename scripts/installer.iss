@@ -18,7 +18,11 @@
 
 #define MyAppName "AI Document Converter"
 #define MyAppVersion "1.0.0"
-#define MyAppPublisher "Grameen Bank"
+; Must match the copyright holder in LICENSE. This surfaces as the Publisher
+; column in Windows' Apps & features list and in the uninstall registry entry -
+; a different place from the licence text the wizard shows, but the same claim
+; of ownership, so the two must not disagree.
+#define MyAppPublisher "Mehedi Hasan"
 #define MyAppExeName "AI.Document.Converter.Wpf.exe"
 #define PublishDir "..\publish\AI.Document.Converter"
 
@@ -35,6 +39,11 @@ DisableProgramGroupPage=yes
 ; (or upgrading, which reinstalls into the same directory) never touches them.
 OutputDir=..\publish
 OutputBaseFilename=AI.Document.Converter-{#MyAppVersion}-Setup
+; Proprietary licence (see LICENSE at the repo root) - shown for acceptance
+; during install. THIRD-PARTY-NOTICES.md is copied into {app} with the rest of
+; the publish output, satisfying the attribution the bundled MIT/BSD/Apache/
+; MPL components require.
+LicenseFile=..\LICENSE
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern

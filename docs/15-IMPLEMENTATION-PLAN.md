@@ -51,7 +51,7 @@ extractors, and the strategy resolution that picks the right processor per file.
 | **Owning project(s)** | `Infrastructure/DocumentProcessing/*`, `AI.Document.Converter.Python/extractors/*`, `Application` (resolution) |
 | **Classes** | `TextDocumentProcessor`, `DocxDocumentProcessor`, `PdfDocumentProcessor`, `ExcelDocumentProcessor`, `PowerPointDocumentProcessor`, `DocumentProcessorResolver`; Python: `docx_extractor.py`, `pdf_extractor.py`, `xlsx_extractor.py`, `pptx_extractor.py`, `dispatch.py` |
 | **Interfaces** | `IDocumentProcessor` (ADR-002) |
-| **Dependencies** | Phase 1 (`IPythonEngineClient`), `pymupdf`, `python-docx`, `openpyxl`, `pandas`, `python-pptx` |
+| **Dependencies** | Phase 1 (`IPythonEngineClient`), `pdfplumber`, `python-docx`, `openpyxl`, `python-pptx` |
 | **Testing approach** | Integration tests per processor against `samples/*` (real Python engine, real files) — the one area where genuine integration tests (not mocks) are required, since the extraction logic's correctness *is* the Python library's behavior. |
 | **Acceptance criteria** | AC-006, AC-007, AC-008, AC-009, AC-010, AC-027, AC-028, AC-029 |
 
@@ -179,9 +179,11 @@ classes are anticipated; if the verification pass finds a gap, it is logged in
   (`PythonEngineClient.SendAsync`) is `LogDebug`-level, and
   `SerilogConfigurator` sets `MinimumLevel.Information()`, so it is filtered
   out of the log file entirely by default - it would only ever carry a
-  library's own diagnostic text in any case (e.g. pymupdf's
-  `pymupdf_layout` notice), never document content, since `dispatch.py`
-  isolates stdout but never routes extracted content to stderr.
+  library's own diagnostic text in any case (the observed instance was
+  pymupdf's `pymupdf_layout` notice, before the 2026-09 move to pdfplumber;
+  the protection stays because any parsing library may write diagnostics),
+  never document content, since `dispatch.py` isolates stdout but never
+  routes extracted content to stderr.
 
 ---
 

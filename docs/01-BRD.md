@@ -2,14 +2,14 @@
 
 **Project:** AI Document Converter
 **Status:** Draft — Phase 1 (Business Analysis)
-**Author:** Claude Code (assisting mehedi@grameenbank.org.bd)
+**Author:** Claude Code (assisting Mehedi Hasan)
 **Date:** 2026-08-23
 
 ---
 
 ## 1. Business Problem
 
-Enterprise users at organizations such as Grameen Bank routinely need to feed internal
+Enterprise users, particularly in financial institutions, routinely need to feed internal
 documents (policies, reports, spreadsheets, presentations) into AI assistants (Claude,
 ChatGPT, Copilot, Azure OpenAI) and internal RAG/knowledge-base systems. Today this is
 done manually — copy/paste, ad-hoc PDF-to-text tools, or uploading raw files — which
@@ -43,16 +43,16 @@ document formats into clean, structured, AI-ready Markdown.
 
 | Stakeholder | Interest |
 |---|---|
-| Grameen Bank (sponsoring organization) | Wants a secure, offline tool to prepare internal documents for AI use without data leaving the bank's environment. |
+| Customer organizations (enterprise / financial institutions) | Want a secure, offline tool to prepare internal documents for AI use without data leaving their own environment. |
 | Business Users / Knowledge Management staff | Primary hands-on users; need a simple, low-friction tool. |
 | Research / Analyst teams | Use converted Markdown/chunks as input to AI-assisted research and reporting. |
 | IT / Information Security | Must approve the tool for offline operation, data handling, and deployment on enterprise Windows machines. |
-| Product Owner (mehedi@grameenbank.org.bd) | Owns scope, priorities, and approval gates. |
+| Product Owner (Mehedi Hasan) | Owns scope, priorities, and approval gates. |
 | Development Team (Mid-level developer, assisted by Claude Code) | Builds and maintains the application; needs the codebase to stay simple and maintainable. |
 
 ## 4. Target Users
 
-- Business users in enterprise/financial institutions (primary: Grameen Bank staff).
+- Business users in enterprise and financial institutions.
 - Knowledge management teams curating internal document repositories.
 - Research teams preparing source material for AI-assisted analysis.
 - Government and other enterprise organizations with similar offline/security needs.
@@ -118,12 +118,31 @@ background required to operate the application.
 ## 9. Dependencies
 
 - .NET 8 runtime (desktop deployment).
-- Python 3.x runtime and libraries: `pymupdf`, `python-docx`, `openpyxl`, `pandas`,
-  `python-pptx`, `markdownify`, `tiktoken`.
+- Python 3.x runtime and libraries: `pdfplumber`, `python-docx`, `openpyxl`,
+  `python-pptx`, `tiktoken`.
 - Enterprise IT approval for whatever Python distribution strategy is selected
   (bundled/embedded vs. externally installed) — this is a deployment risk if not
   resolved early (see Risks).
 - Serilog (.NET logging), Microsoft.Extensions.DependencyInjection (DI).
+
+> **Updated 2026-09-08.** This list originally named `pymupdf`, `pandas` and
+> `markdownify`. All three are corrected above:
+>
+> - **`pymupdf` → `pdfplumber`.** PyMuPDF is dual-licensed AGPL-3.0 / Artifex commercial.
+>   AGPL §13's network clause is triggered by serving conversion over a network, which the
+>   planned cloud edition does, and subprocess or container separation does not discharge
+>   it. pdfplumber (MIT) replaced it after measured table fidelity came out identical —
+>   see `docs/saas/02-PDF-ENGINE-BENCHMARK.md`. PyMuPDF remains a development-only tool
+>   for fixture generation and benchmark comparison (`requirements-dev.txt`).
+> - **`pandas` was never a declared runtime dependency.** It never appeared in
+>   `requirements.txt` and no source file imports it. It is currently pulled into the
+>   PyInstaller bundle transitively via an optional openpyxl import; removing that is a
+>   tracked cleanup task.
+> - **`markdownify` was never used.** Markdown generation is implemented in C#
+>   (`Application/Services/MarkdownGenerator.cs`), not in the Python engine.
+>
+> Authoritative runtime list: `src/AI.Document.Converter.Python/requirements.txt`.
+> Full licence inventory: `THIRD-PARTY-NOTICES.md`.
 
 ## 10. Risks (Business-Level Summary)
 

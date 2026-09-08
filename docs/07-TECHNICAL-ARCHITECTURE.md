@@ -37,9 +37,9 @@ flowchart TB
 
     subgraph Py["Python Processing Engine (bundled executable)"]
         PyDispatch["Dispatch Entry Point"]
-        PyPdf["pdf_extractor.py (pymupdf)"]
+        PyPdf["pdf_extractor.py (pdfplumber)"]
         PyDocx["docx_extractor.py (python-docx)"]
-        PyXlsx["xlsx_extractor.py (openpyxl / pandas)"]
+        PyXlsx["xlsx_extractor.py (openpyxl)"]
         PyPptx["pptx_extractor.py (python-pptx)"]
         PyTok["tokenizer.py (tiktoken)"]
     end
@@ -60,6 +60,20 @@ flowchart TB
 See ADR-001 (`docs/adr/ADR-001-python-integration.md`) for why subprocess + JSON was
 selected over embedded Python, a system-installed Python, or a long-running local
 server.
+
+> **Updated 2026-09-08.** The diagram previously showed `pdf_extractor.py (pymupdf)` and
+> `xlsx_extractor.py (openpyxl / pandas)`.
+>
+> - **PDF extraction moved from PyMuPDF to pdfplumber (MIT).** PyMuPDF is dual-licensed
+>   AGPL-3.0 / Artifex commercial, and AGPL §13's network clause is triggered by serving
+>   conversion over a network — which the planned cloud edition does. Subprocess or
+>   container separation does not discharge that obligation. Measured table fidelity was
+>   identical (`docs/saas/02-PDF-ENGINE-BENCHMARK.md`).
+> - **`pandas` was never used by the XLSX extractor**, which has always relied on
+>   `openpyxl` alone.
+>
+> The stdin/stdout JSON contract and the one-process-per-request model are unchanged by
+> the swap, so ADR-001's decision still stands as written.
 
 ## 2. Component Architecture
 

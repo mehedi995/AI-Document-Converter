@@ -1,0 +1,66 @@
+AI Document Converter
+Copyright (c) 2026 Mehedi Hasan. All rights reserved.
+
+PROPRIETARY SOFTWARE LICENCE
+
+This software and its accompanying source code, documentation, and related
+materials (the "Software") are the proprietary and confidential property of the
+copyright holder named above. The Software is licensed, not sold.
+
+1. GRANT
+
+   No licence to use, copy, modify, or distribute the Software is granted except
+   by a separate written agreement signed by the copyright holder, or by the
+   subscription terms under which access to the hosted service is provided.
+
+2. RESTRICTIONS
+
+   Except to the extent expressly permitted by such an agreement, or by
+   applicable law notwithstanding this licence, you may not:
+
+   (a) copy, reproduce, or distribute the Software or any part of it;
+   (b) modify, adapt, translate, or create derivative works of the Software;
+   (c) reverse engineer, decompile, or disassemble the Software, or otherwise
+       attempt to derive its source code;
+   (d) sublicense, rent, lease, lend, sell, or otherwise transfer the Software;
+   (e) remove, obscure, or alter any proprietary notice, licence text, or
+       attribution contained in or accompanying the Software.
+
+3. THIRD-PARTY COMPONENTS
+
+   The Software incorporates third-party components that are licensed separately
+   under their own terms. Those terms govern those components, and nothing in
+   this licence limits any right you have under them.
+
+   Every such component, its version, its licence, and the attribution it
+   requires are listed in THIRD-PARTY-NOTICES.md, which accompanies the
+   Software and forms part of its distribution. That file must be distributed
+   together with the Software.
+
+4. NO WARRANTY
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+
+   In particular, and without limiting the foregoing: the Software performs
+   automated extraction of content from document files. The completeness and
+   accuracy of that extraction depend on the structure of each source document
+   and are not guaranteed. No representation is made that any particular
+   document will be extracted completely or correctly. The Software reports
+   known extraction gaps as warnings; the absence of a warning is not a
+   guarantee of completeness.
+
+5. LIMITATION OF LIABILITY
+
+   TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL THE
+   COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY,
+   WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF,
+   OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+   SOFTWARE.
+
+6. TERMINATION
+
+   Any rights granted under a separate agreement terminate automatically if you
+   breach this licence. On termination you must cease all use of the Software
+   and destroy all copies in your possession or control.

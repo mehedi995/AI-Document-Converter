@@ -5,9 +5,8 @@ documents (PDF, DOCX, XLSX, PPTX, TXT) into clean, structured, AI-ready Markdown
 reducing token usage and improving retrieval quality for use with AI assistants
 (Claude, ChatGPT, Copilot, Azure OpenAI) and RAG/vector-search systems.
 
-Built for enterprise and financial-institution use (primary stakeholder: Grameen
-Bank), where documents cannot leave the organization's machines. No document content
-is ever sent over the network.
+Built for enterprise and financial-institution use, where documents cannot leave the
+organization's machines. No document content is ever sent over the network.
 
 ## Project Status
 
@@ -83,11 +82,16 @@ the code-signing step (requires the organization's own certificate — not autom
 - **Offline-first:** no outbound network calls anywhere in the application
   (`docs/03-SRS.md` NFR-001/002); verified live during a real conversion cycle, not
   just assumed (`docs/16-TEST-STRATEGY.md` Section 5).
-- **Python integration:** document extraction uses Python libraries (pymupdf,
+- **Python integration:** document extraction uses Python libraries (pdfplumber,
   python-docx, openpyxl, python-pptx, tiktoken), bundled as a self-contained
   application folder and invoked as a short-lived subprocess per file — no separate
   Python install required on the target machine
   (`docs/adr/ADR-001-python-integration.md`).
+- **Permissively licensed dependencies only:** every bundled component is MIT, BSD,
+  Apache-2.0 or MPL-2.0. PDF extraction moved from PyMuPDF (AGPL-3.0 / Artifex) to
+  pdfplumber (MIT) in 2026-09 so the engine can be served over a network without
+  triggering AGPL §13. Enforced by `scripts/check-licences.py`; full inventory in
+  `THIRD-PARTY-NOTICES.md`.
 - **Token estimates, not exact counts:** displayed token counts are clearly labeled
   as estimates and are never claimed to match a specific provider's real tokenizer
   exactly (`docs/adr/ADR-003-token-estimation-strategy.md`).
@@ -99,11 +103,20 @@ the code-signing step (requires the organization's own certificate — not autom
 ## Technology Stack
 
 - **Desktop:** .NET 8, WPF, MVVM
-- **Document Processing:** Python (pymupdf, python-docx, openpyxl, pandas,
-  python-pptx, markdownify, tiktoken), bundled via PyInstaller
+- **Document Processing:** Python (pdfplumber, python-docx, openpyxl, python-pptx,
+  tiktoken), bundled via PyInstaller
 - **DI:** `Microsoft.Extensions.DependencyInjection`
 - **Logging:** Serilog
 - **Testing:** xUnit
+- **Licence:** proprietary (see `LICENSE`); third-party attribution in
+  `THIRD-PARTY-NOTICES.md`
+
+> **Updated 2026-09-08.** This list previously named `pymupdf`, `pandas` and
+> `markdownify`. `pymupdf` was replaced by `pdfplumber` (see above); `pandas` was never a
+> declared runtime dependency and no source file imports it; `markdownify` was never used
+> at all — Markdown generation is implemented in C#
+> (`Application/Services/MarkdownGenerator.cs`). The authoritative runtime list is
+> `src/AI.Document.Converter.Python/requirements.txt`.
 
 ## Documentation Map
 

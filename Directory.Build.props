@@ -7,4 +7,19 @@
     <Version>1.0.0</Version>
   </PropertyGroup>
 
+  <!-- Ownership metadata, set once for the whole solution so it cannot drift
+       between projects. These become the CompanyName and LegalCopyright fields
+       of every built assembly (visible in a file's Properties > Details), and
+       they must match the copyright holder in LICENSE and the AppPublisher in
+       scripts/installer.iss - three surfaces, one claim of ownership.
+
+       Without Company set explicitly, MSBuild falls back to using the assembly
+       name, so the built exe previously reported its CompanyName as
+       "AI.Document.Converter.Wpf" and its LegalCopyright as empty. -->
+  <PropertyGroup>
+    <Company>Mehedi Hasan</Company>
+    <Authors>Mehedi Hasan</Authors>
+    <Copyright>Copyright (c) 2026 Mehedi Hasan. All rights reserved.</Copyright>
+  </PropertyGroup>
+
 </Project>

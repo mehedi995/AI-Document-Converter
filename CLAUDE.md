@@ -67,7 +67,6 @@ Primary users:
 - Research
 - Enterprise Organizations
 - Financial Institutions
-- Grameen Bank
 - Government Organizations
 
 The application must be usable by a non-technical business user.
@@ -168,13 +167,32 @@ Python will be responsible for document extraction and conversion tasks where Py
 
 Libraries:
 
-- pymupdf
+- pdfplumber
 - python-docx
 - openpyxl
-- pandas
 - python-pptx
-- markdownify
 - tiktoken
+
+**Licence rule — this is binding, not advisory.** Every runtime dependency must be
+permissively licensed (MIT, BSD, Apache-2.0, MPL-2.0). **Never add an AGPL-licensed
+library to the runtime.** The cloud edition serves conversion over a network, which
+triggers AGPL §13's obligation to release the complete corresponding source of the
+combined work; running the library in a subprocess or a separate container does **not**
+discharge that obligation. `scripts/check-licences.py` enforces this and fails the build
+on a violation. Record any new dependency's licence in `THIRD-PARTY-NOTICES.md`.
+
+> **Updated 2026-09-08.** This list originally named `pymupdf`, `pandas` and
+> `markdownify`.
+> - **`pymupdf` → `pdfplumber`** (MIT). PyMuPDF is dual-licensed AGPL-3.0 / Artifex
+>   commercial and cannot ship in a paid network service. Measured table fidelity was
+>   identical — see `docs/saas/02-PDF-ENGINE-BENCHMARK.md`. PyMuPDF is retained as a
+>   **development-only** tool in `requirements-dev.txt` for fixture generation and
+>   benchmark comparison.
+> - **`pandas`** was never a declared runtime dependency and no source file imports it.
+> - **`markdownify`** was never used at all — Markdown generation is implemented in C#
+>   (`Application/Services/MarkdownGenerator.cs`), not in the Python engine.
+>
+> Authoritative runtime list: `src/AI.Document.Converter.Python/requirements.txt`.
 
 The .NET application should communicate with Python through a clearly defined integration mechanism.
 

@@ -21,6 +21,16 @@
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- The MIT/BSD/Apache/MPL components bundled in this app require their
+       attribution to travel WITH the distribution, so these two files must land
+       in the output (and therefore in the publish folder the installer packages,
+       see scripts/installer.iss). Shipping the binaries without them would leave
+       the attribution obligation unmet. -->
+  <ItemGroup>
+    <None Include="..\..\LICENSE" Link="LICENSE" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
