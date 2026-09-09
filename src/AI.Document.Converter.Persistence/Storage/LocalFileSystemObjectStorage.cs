@@ -87,6 +87,38 @@ public sealed class LocalFileSystemObjectStorage : IObjectStorage
         return Task.CompletedTask;
     }
 
+    public async IAsyncEnumerable<StoredObject> ListAsync(
+        string prefix,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var root = string.IsNullOrEmpty(prefix) ? _rootDirectory : ResolvePath(prefix);
+
+        if (!Directory.Exists(root))
+        {
+            yield break;
+        }
+
+        foreach (var path in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // A ".partial" file is a write in progress (see WriteAsync). It has
+            // no key and no row, and treating it as an orphan would delete
+            // somebody's upload mid-flight.
+            if (path.EndsWith(".partial", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var info = new FileInfo(path);
+            var key = Path.GetRelativePath(_rootDirectory, path).Replace(Path.DirectorySeparatorChar, '/');
+
+            yield return new StoredObject(key, info.Length, info.LastWriteTimeUtc);
+        }
+
+        await Task.CompletedTask;
+    }
+
     private string ResolvePath(string key)
     {
         if (string.IsNullOrWhiteSpace(key) || !SafeKeyPattern.IsMatch(key))

@@ -27,7 +27,20 @@ public interface IObjectStorage
     // Idempotent: deleting something already gone is a success, so retention
     // sweeps and customer deletions can both run without racing each other.
     Task DeleteAsync(string key, CancellationToken cancellationToken);
+
+    // Enumerates what is actually stored, which is the only way to find an
+    // object no database row points at. Everything else in this system reasons
+    // from rows outward; reconciliation has to reason from storage inward.
+    //
+    // Streamed rather than returned as a list: an object store with a large
+    // tenant should not have to be materialised in memory to be swept.
+    IAsyncEnumerable<StoredObject> ListAsync(string prefix, CancellationToken cancellationToken);
 }
+
+// LastModifiedUtc is what makes safe reconciliation possible. Uploads write
+// bytes BEFORE committing the row, so a just-written object legitimately has no
+// row for a moment; age is how that window is excluded.
+public sealed record StoredObject(string Key, long SizeBytes, DateTime LastModifiedUtc);
 
 // Builds the only key shapes this system uses. Centralized so a caller cannot
 // invent its own layout and accidentally drop a tenant prefix.

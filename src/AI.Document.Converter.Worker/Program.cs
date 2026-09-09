@@ -81,6 +81,11 @@ builder.Services.AddScoped<JobLifecycleService>();
 builder.Services.AddScoped<ExportPackageBuilder>();
 builder.Services.AddHostedService<RetentionSweepService>();
 
+builder.Services.Configure<OrphanReconciliationOptions>(
+    builder.Configuration.GetSection("OrphanReconciliation"));
+builder.Services.AddScoped<OrphanReconciliationService>();
+builder.Services.AddHostedService<OrphanReconciliationHostedService>();
+
 builder.Services.AddScoped<JobClaimer>();
 builder.Services.AddScoped<JobProcessor>();
 builder.Services.AddHostedService<ConversionWorkerService>();

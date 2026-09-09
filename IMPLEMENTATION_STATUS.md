@@ -2,8 +2,8 @@
 
 **Last updated:** 2026-09-08
 **Baseline commit:** `d27e8a9` (desktop v1.0.0)
-**Current phase:** **Phase 2 substantially complete.** All five formats verified end to end;
-history, search, filter and reconvert work. The orphan sweep remains open.
+**Current phase:** **Phase 2 complete.** All five formats, history, search, reconvert, retention
+and orphan reconciliation. Phase 3 (commercial) is blocked on a business decision, not code.
 
 > Scope note: the cloud SaaS edition is authorized and supersedes the desktop-only /
 > no-server / no-auth / no-database constraints **for the cloud edition only**. The desktop
@@ -786,6 +786,42 @@ of a colliding group is suffixed uniformly.
 
 ---
 
+### Phase 2 - orphan reconciliation (increment 17)
+
+Closes the gap recorded in increment 9, and the last open item in Phase 2's "cleanup".
+
+**Why it was needed.** Everything else reasons from rows outward: retention walks `SourceDocument`
+and `Artifact` rows and deletes the bytes they name. That can never find an object whose row was
+lost - a failed commit, a manual database edit, a restored backup older than the object store.
+Those objects are invisible, retained forever, and paid for.
+
+Reconciliation is the only process that reasons **from storage inward**, which makes it the only
+one that can delete something nothing knows about. A false positive here is unrecoverable customer
+data loss, so most of the design is refusals:
+
+| Safeguard | Why |
+|---|---|
+| **2-hour minimum age** | Uploads write bytes *before* committing the row, so a file being accepted right now legitimately has no row. Without this, the sweep would race ordinary uploads. |
+| **Per-run cap (500)**, abort not truncate | A bug making everything look orphaned would otherwise empty the store in one pass. Over the limit it deletes **nothing** and logs an error. |
+| **Report-only mode** | The intended way to introduce it: run, read the logs, then let it delete. |
+| **`.partial` files skipped** | A write in progress has no key and no row; deleting it would destroy an upload mid-flight. |
+| **Rows with deleted bytes still count as references** | Such a row still *names* its key. If the byte deletion silently failed, that is retention's job to retry - claiming it here would hide the failure. |
+| **6-hour interval, no run at startup** | An orphan is wasted storage, not an emergency. No reason to scan while a restarting worker is busiest. |
+
+Logs carry counts and bytes only, never keys - a key embeds a workspace id (FR-035).
+
+**8 tests, weighted towards what it must refuse:** a just-written object surviving, a `.partial`
+file surviving, a row with deleted bytes protecting its object, the per-run limit deleting *nothing*
+rather than a subset, and report-only sizing the reclaim without acting.
+
+**Checked against the live store:** 15 rows referencing a key, 15 objects on disk, **0 orphans and
+0 dangling references** - the system is currently consistent, which is the result you want from a
+tool like this on a healthy system.
+
+**249 passed, 0 failed** (121 unit + 83 web + 45 integration). Build clean.
+
+---
+
 ## 2. Not started
 
 Phases 1–4 in full: web host, identity/workspaces, upload, persisted jobs and durable queue, results
@@ -823,12 +859,19 @@ Verified against source and executed runs, these documented claims do **not** ho
 
 ## 5. Next concrete task
 
-The storage/row reconciliation pass, open since increment 9 and now the last unmet item in Phase
-2's "cleanup". The retention sweep walks rows, so an object with no row pointing at it is invisible
-to it and is never reclaimed.
+**Phase 3 is blocked on a business decision, not on code.** SR-BIL-1 requires implementing ONE
+approved provider first, and provider eligibility for a Bangladesh seller is still unverified:
+Stripe merchant eligibility is not assumed, Paddle is a candidate subject to approval, and a local
+provider such as SSLCOMMERZ needs recurring auto-debit verified separately (one-time checkout does
+not prove it).
 
-After that, Phase 3 (commercial layer) begins - but its first blocker is a business decision, not
-code: billing provider eligibility for a Bangladesh seller is still unverified.
+Work that can proceed without that answer:
+
+1. **Plan and metering model** - versioned plan configuration, conversion credits as a deterministic
+   unit (SR-BIL-4), and the usage ledger with idempotency keys. All provider-neutral.
+2. **Atomic allowance reservation** (SR-BIL-5) - reserve on job acceptance so concurrent jobs cannot
+   overspend; release on rejected, failed or cancelled work.
+3. The provider-neutral billing boundary itself, with live checkout clearly disabled.
 
 **Decision-independent work that can proceed in parallel** (in priority order):
 
