@@ -194,6 +194,40 @@ def _guard_supported_size(workbook, file_name):
         )
 
 
+def _count_billable_source_cells(workbook):
+    """Non-empty cells as they exist in the SOURCE file (SaaS SR-BIL-4).
+
+    Two rules the requirement is explicit about, and both change the number:
+
+    - Counted BEFORE merged-cell expansion. A merge spanning 10 columns is one
+      authored value; billing it as 10 would charge for formatting.
+    - A formula cell counts ONCE, not once for the formula and once for its
+      cached result.
+
+    Counted from the same data_only view the extraction uses, so the number
+    billed and the content delivered come from one reading of the file.
+    """
+    total = 0
+
+    for worksheet in workbook.worksheets:
+        merged_non_anchor = set()
+        for merged_range in worksheet.merged_cells.ranges:
+            for row in range(merged_range.min_row, merged_range.max_row + 1):
+                for col in range(merged_range.min_col, merged_range.max_col + 1):
+                    if (row, col) != (merged_range.min_row, merged_range.min_col):
+                        merged_non_anchor.add((row, col))
+
+        for row in worksheet.iter_rows():
+            for cell in row:
+                if cell.value is None:
+                    continue
+                if (cell.row, cell.column) in merged_non_anchor:
+                    continue
+                total += 1
+
+    return total
+
+
 def extract(file_path, mode=FAITHFUL_MODE):
     check_file_accessible(file_path)
     check_not_encrypted_ooxml(file_path)
@@ -272,6 +306,10 @@ def extract(file_path, mode=FAITHFUL_MODE):
         "sheetCount": len(workbook.worksheets),
         "author": normalize_optional_text(workbook.properties.creator),
         "extractionMode": mode,
+        # Metering input (SR-BIL-4). Reported even in summary mode, because the
+        # customer is billed for the document they supplied, not for how much
+        # of it a preview happened to show.
+        "billableSourceCells": _count_billable_source_cells(workbook),
     }
 
     return model.document(metadata, sections, warnings)

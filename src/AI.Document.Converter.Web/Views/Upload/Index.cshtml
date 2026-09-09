@@ -17,6 +17,27 @@
         </select>
     </p>
     <p>Up to @Model.MaxFiles files, @Model.MaxFileSizeMb MB each. PDF, DOCX, XLSX, PPTX, TXT.</p>
+    @* The balance and the rule, before the upload rather than after it. The
+       exact cost of a document is not knowable until its bytes arrive, so this
+       page states how conversions are counted instead of quoting a figure it
+       would have to guess at. *@
+    <p>
+        <strong>Credits:</strong>
+        @if (Model.AvailableCredits is { } available)
+        {
+            <text>@available.ToString("N0") of @Model.IncludedCredits!.Value.ToString("N0") remaining
+            this period.</text>
+        }
+        else
+        {
+            <text>Nothing has been converted yet this period.</text>
+        }
+        <br />
+        <span>@Model.CreditRule</span>
+        <br />
+        <span>Credits are a measure of processing, not of AI tokens. A conversion that cannot
+              be covered is refused rather than charged as an overage.</span>
+    </p>
     @* Rendered from the same RetentionPolicy the worker's sweep enforces, so
        this sentence cannot drift away from what actually happens. *@
     <p><strong>Retention:</strong> @Model.RetentionNotice

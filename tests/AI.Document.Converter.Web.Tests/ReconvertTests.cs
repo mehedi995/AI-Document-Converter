@@ -1,4 +1,5 @@
 using AI.Document.Converter.Persistence;
+using AI.Document.Converter.Persistence.Billing;
 using AI.Document.Converter.Persistence.Entities;
 using AI.Document.Converter.Persistence.Storage;
 using AI.Document.Converter.Web.Services;
@@ -35,7 +36,9 @@ public sealed class ReconvertTests : IDisposable
     }
 
     private ConversionIntakeService Intake(ConverterDbContext db) =>
-        new(db, _storage, new UploadValidator(), NullLogger<ConversionIntakeService>.Instance);
+        new(db, _storage, new UploadValidator(),
+            new MeteringService(db, NullLogger<MeteringService>.Instance),
+            NullLogger<ConversionIntakeService>.Instance);
 
     private static async Task<(Guid WorkspaceId, ConversionJob Job, List<SourceDocument> Documents)>
         SeedCompletedJobAsync(ConverterDbContext db, int fileCount)

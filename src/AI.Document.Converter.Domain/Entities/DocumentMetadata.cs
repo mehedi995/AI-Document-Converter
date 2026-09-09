@@ -22,4 +22,13 @@ public sealed class DocumentMetadata
     public int? SheetCount { get; init; }
 
     public string? Author { get; init; }
+
+    // Metering input for spreadsheets (SaaS SR-BIL-4): non-empty cells as they
+    // exist in the SOURCE file - counted before merged-cell expansion, and
+    // counting a formula cell once. Null for every other format, which is
+    // priced by pages, slides or characters instead.
+    //
+    // Reported by the extractor rather than derived from the extracted model,
+    // because the model has already expanded merges and would over-count.
+    public int? BillableSourceCells { get; init; }
 }

@@ -3,6 +3,7 @@ using System;
 using AI.Document.Converter.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace AI.Document.Converter.Persistence.Migrations
 {
     [DbContext(typeof(ConverterDbContext))]
-    partial class ConverterDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260909094859_BillingAndMetering")]
+    partial class BillingAndMetering
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -238,9 +241,6 @@ namespace AI.Document.Converter.Persistence.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
 
-                    b.Property<long>("EstimatedCredits")
-                        .HasColumnType("bigint");
-
                     b.Property<bool>("IsRetryable")
                         .HasColumnType("boolean");
 
@@ -332,41 +332,6 @@ namespace AI.Document.Converter.Persistence.Migrations
                     b.HasIndex("JobItemId");
 
                     b.ToTable("JobItemWarnings");
-                });
-
-            modelBuilder.Entity("AI.Document.Converter.Persistence.Entities.ProviderEventRecord", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("EventId")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<string>("Kind")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<string>("ProviderName")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<DateTime>("ReceivedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("WorkspaceId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ProviderName", "EventId")
-                        .IsUnique();
-
-                    b.ToTable("ProviderEvents");
                 });
 
             modelBuilder.Entity("AI.Document.Converter.Persistence.Entities.SourceDocument", b =>
@@ -610,8 +575,7 @@ namespace AI.Document.Converter.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("JobId")
-                        .IsUnique()
-                        .HasFilter("\"Status\" = 0");
+                        .IsUnique();
 
                     b.HasIndex("UsagePeriodId");
 

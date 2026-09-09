@@ -11,6 +11,28 @@
     </form>
 </header>
 
+@* Held credits are shown separately from spent ones. They are not gone - a
+   conversion that fails or is cancelled hands them straight back - and folding
+   them into one figure would make a temporary hold look like a charge. *@
+<section class="usage">
+    @if (Model.AvailableCredits is { } available)
+    {
+        <p>
+            <strong>@available.ToString("N0")</strong> of
+            @Model.IncludedCredits!.Value.ToString("N0") credits remaining this period.
+            @if (Model.HeldCredits > 0)
+            {
+                <text>@Model.HeldCredits.Value.ToString("N0") held for conversions still
+                running; anything unused is returned when they finish.</text>
+            }
+        </p>
+    }
+    else
+    {
+        <p class="muted">No conversions have been metered this period yet.</p>
+    }
+</section>
+
 @if (TempData["Message"] is string message)
 {
     <p class="notice">@message</p>
@@ -19,6 +41,7 @@
 <p class="row-actions">
     <a class="button-link primary" asp-controller="Upload" asp-action="Index">New conversion</a>
     <a asp-controller="History" asp-action="Index">View all history</a>
+    <a asp-controller="Billing" asp-action="Index">Plan and usage</a>
 </p>
 
 <h2>Recent conversions</h2>

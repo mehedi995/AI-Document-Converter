@@ -35,6 +35,16 @@ public sealed class ConverterDbContext
 
     public DbSet<JobItemWarning> JobItemWarnings => Set<JobItemWarning>();
 
+    public DbSet<Subscription> Subscriptions => Set<Subscription>();
+
+    public DbSet<UsagePeriod> UsagePeriods => Set<UsagePeriod>();
+
+    public DbSet<UsageReservation> UsageReservations => Set<UsageReservation>();
+
+    public DbSet<UsageLedgerEntry> UsageLedgerEntries => Set<UsageLedgerEntry>();
+
+    public DbSet<ProviderEventRecord> ProviderEvents => Set<ProviderEventRecord>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
@@ -180,6 +190,93 @@ public sealed class ConverterDbContext
                 .OnDelete(DeleteBehavior.Cascade);
 
             entity.HasIndex(w => w.JobItemId);
+        });
+
+        builder.Entity<Subscription>(entity =>
+        {
+            entity.HasKey(s => s.Id);
+            entity.Property(s => s.PlanCode).HasMaxLength(80).IsRequired();
+            entity.Property(s => s.Status).HasConversion<int>();
+            entity.Property(s => s.ProviderSubscriptionId).HasMaxLength(200);
+            entity.Property(s => s.ProviderName).HasMaxLength(80);
+            entity.Property(s => s.Version).IsRowVersion();
+
+            entity.HasOne(s => s.Workspace)
+                .WithMany()
+                .HasForeignKey(s => s.WorkspaceId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // One active commercial state per workspace.
+            entity.HasIndex(s => s.WorkspaceId).IsUnique();
+        });
+
+        builder.Entity<UsagePeriod>(entity =>
+        {
+            entity.HasKey(p => p.Id);
+            entity.Property(p => p.PlanCode).HasMaxLength(80).IsRequired();
+            entity.Property(p => p.Version).IsRowVersion();
+
+            // The current period is looked up by workspace and time on every
+            // job acceptance, so this index is on the hot path.
+            entity.HasIndex(p => new { p.WorkspaceId, p.StartsAtUtc, p.EndsAtUtc });
+        });
+
+        builder.Entity<UsageReservation>(entity =>
+        {
+            entity.HasKey(r => r.Id);
+            entity.Property(r => r.Status).HasConversion<int>();
+            entity.Property(r => r.PolicyVersion).HasMaxLength(40).IsRequired();
+
+            entity.HasOne(r => r.UsagePeriod)
+                .WithMany()
+                .HasForeignKey(r => r.UsagePeriodId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // A job holds at most one OPEN reservation, enforced by the database
+            // so a duplicate accept cannot double-hold the customer's allowance.
+            //
+            // Filtered on Held rather than unique on JobId alone, because a job
+            // legitimately accumulates resolved reservations over its life: a
+            // retry closes the first hold and takes a new one. A plain unique
+            // index made the second one impossible, which is not the invariant -
+            // "one hold at a time" is. It is also what makes the
+            // SingleOrDefault(Held) lookups in MeteringService safe by schema.
+            entity.HasIndex(r => r.JobId)
+                .IsUnique()
+                .HasFilter($"\"Status\" = {(int)ReservationStatus.Held}");
+        });
+
+        builder.Entity<ProviderEventRecord>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.ProviderName).HasMaxLength(50).IsRequired();
+            entity.Property(e => e.EventId).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.Kind).HasMaxLength(50).IsRequired();
+
+            // The replay guard, in the database rather than in a check the
+            // application might skip under concurrency. Two simultaneous
+            // deliveries of one event both pass an "already applied?" query;
+            // only one survives this index.
+            entity.HasIndex(e => new { e.ProviderName, e.EventId }).IsUnique();
+        });
+
+        builder.Entity<UsageLedgerEntry>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Kind).HasConversion<int>();
+            entity.Property(e => e.BasisDescription).HasMaxLength(400).IsRequired();
+            entity.Property(e => e.PolicyVersion).HasMaxLength(40).IsRequired();
+            entity.Property(e => e.PlanCode).HasMaxLength(80).IsRequired();
+            entity.Property(e => e.IdempotencyKey).HasMaxLength(200).IsRequired();
+
+            // THE constraint that makes double-charging impossible rather than
+            // merely unlikely. Queue delivery is at-least-once, so a duplicate
+            // settlement WILL happen; this turns it into a unique-violation the
+            // service catches instead of a second charge (SR-BIL-5).
+            entity.HasIndex(e => e.IdempotencyKey).IsUnique();
+
+            // Statement queries: everything a workspace was charged in a period.
+            entity.HasIndex(e => new { e.WorkspaceId, e.UsagePeriodId, e.CreatedAtUtc });
         });
 
         ConfigureUtcDateTimes(builder);

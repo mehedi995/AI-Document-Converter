@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using AI.Document.Converter.Persistence.Billing;
 using AI.Document.Converter.Persistence.Presets;
 using AI.Document.Converter.Persistence.Retention;
 using AI.Document.Converter.Web.Services;
@@ -17,28 +18,49 @@ public sealed class UploadController : Controller
 
     private readonly ConversionIntakeService _intake;
     private readonly WorkspaceAccessService _workspaceAccess;
+    private readonly MeteringService _metering;
     private readonly RetentionPolicy _retentionPolicy;
 
     public UploadController(
         ConversionIntakeService intake,
         WorkspaceAccessService workspaceAccess,
+        MeteringService metering,
         Microsoft.Extensions.Options.IOptions<RetentionPolicy> retentionPolicy)
     {
         _intake = intake;
         _workspaceAccess = workspaceAccess;
+        _metering = metering;
         _retentionPolicy = retentionPolicy.Value;
     }
 
     // Built from the SAME policy object the worker's sweep enforces, so the
     // page cannot promise one thing while the sweep does another (SR-SEC-6).
-    private UploadPageModel BuildPageModel() => new(
-        UploadValidator.MaxFileSizeBytes / (1024 * 1024),
-        MaxFilesPerUpload,
-        _retentionPolicy.DescribeForCustomer(),
-        ConversionPresets.All.ToList());
+    private async Task<UploadPageModel> BuildPageModelAsync(CancellationToken cancellationToken)
+    {
+        // Shown BEFORE the upload, so a customer near their limit finds out
+        // here rather than after waiting for a large file to transfer. This is
+        // the honest limit of a preflight: the true cost of a document cannot
+        // be known until its bytes arrive, so what can be offered in advance is
+        // the balance and the rule, not a per-file quote.
+        var workspace = await _workspaceAccess.GetDefaultWorkspaceAsync(GetUserId(), cancellationToken);
+
+        var period = workspace is null
+            ? null
+            : await _metering.FindCurrentPeriodAsync(workspace.Id, DateTime.UtcNow, cancellationToken);
+
+        return new UploadPageModel(
+            UploadValidator.MaxFileSizeBytes / (1024 * 1024),
+            MaxFilesPerUpload,
+            _retentionPolicy.DescribeForCustomer(),
+            ConversionPresets.All.ToList(),
+            period?.AvailableCredits,
+            period?.IncludedCredits,
+            ConversionCredits.Describe());
+    }
 
     [HttpGet("")]
-    public IActionResult Index() => View(BuildPageModel());
+    public async Task<IActionResult> Index(CancellationToken cancellationToken) =>
+        View(await BuildPageModelAsync(cancellationToken));
 
     [HttpPost("")]
     [RequestSizeLimit(UploadValidator.MaxFileSizeBytes * MaxFilesPerUpload)]
@@ -59,14 +81,14 @@ public sealed class UploadController : Controller
         if (files.Count == 0)
         {
             ModelState.AddModelError(string.Empty, "Choose at least one file to convert.");
-            return View(BuildPageModel());
+            return View(await BuildPageModelAsync(cancellationToken));
         }
 
         if (files.Count > MaxFilesPerUpload)
         {
             ModelState.AddModelError(
                 string.Empty, $"Upload at most {MaxFilesPerUpload} files at a time.");
-            return View(BuildPageModel());
+            return View(await BuildPageModelAsync(cancellationToken));
         }
 
         // Buffered to a seekable stream because validation reads the header,
@@ -134,4 +156,9 @@ public sealed record UploadPageModel(
     long MaxFileSizeMb,
     int MaxFiles,
     string RetentionNotice,
-    IReadOnlyList<ConversionPreset> Presets);
+    IReadOnlyList<ConversionPreset> Presets,
+    // Null when nothing has been metered yet. Rendered as the plan's allowance
+    // rather than as zero, which would read as "you have run out".
+    long? AvailableCredits,
+    long? IncludedCredits,
+    string CreditRule);

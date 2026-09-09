@@ -1,0 +1,77 @@
+@model AI.Document.Converter.Web.Controllers.BillingPageModel
+@{ ViewData["Title"] = "Plan and usage"; }
+
+<h1>Plan and usage</h1>
+
+@* Checkout state comes from the provider, not from a setting, so this cannot
+   invite a purchase the system would then refuse (SR-BIL-1). *@
+@if (!Model.CheckoutAvailable)
+{
+    <p role="status"><strong>@Model.CheckoutUnavailableMessage</strong></p>
+}
+
+<section>
+    <h2>This period</h2>
+    @if (Model.IncludedCredits is { } included)
+    {
+        <p>
+            Plan <code>@Model.CurrentPlanCode</code>.
+            @Model.UsedCredits!.Value.ToString("N0") of @included.ToString("N0") credits used,
+            @Model.AvailableCredits!.Value.ToString("N0") remaining.
+        </p>
+        <p class="muted">Period ends @Model.PeriodEndsAtUtc!.Value.ToString("u").</p>
+    }
+    else
+    {
+        <p class="muted">Nothing has been converted yet, so no period has started.</p>
+    }
+</section>
+
+<section>
+    <h2>How conversions are counted</h2>
+    <p>@Model.CreditRule</p>
+    @* Stated plainly because the two are easy to confuse, and because the
+       product's whole premise is about AI tokens. A credit measures OUR
+       processing; it is not a token count and not a prediction of one. *@
+    <p>
+        A credit measures processing work, not AI tokens. Token figures shown with a
+        conversion are estimates from a named tokenizer and are not what you are charged for.
+    </p>
+    <p>
+        A conversion that would exceed your remaining credits is refused rather than
+        charged as an overage. Credits held for work in progress are returned if it
+        fails or is cancelled.
+    </p>
+</section>
+
+<section>
+    <h2>Plans</h2>
+    @* No prices. None have been approved, and publishing an illustrative figure
+       is how an unapproved number becomes a commitment. *@
+    <table>
+        <thead>
+            <tr>
+                <th scope="col">Plan</th>
+                <th scope="col">Credits per period</th>
+                <th scope="col">Files per conversion</th>
+                <th scope="col">Max file size</th>
+                <th scope="col">Seats</th>
+            </tr>
+        </thead>
+        <tbody>
+        @foreach (var plan in Model.Plans)
+        {
+            <tr>
+                <th scope="row">@plan.DisplayName<br /><span class="muted">@plan.Description</span></th>
+                <td>@plan.IncludedCreditsPerPeriod.ToString("N0")</td>
+                <td>@plan.MaxFilesPerJob</td>
+                <td>@(plan.MaxFileSizeBytes / (1024 * 1024)) MB</td>
+                <td>@plan.IncludedSeats</td>
+            </tr>
+        }
+        </tbody>
+    </table>
+    <p class="muted">Pricing has not been set. Allowances above are what the service enforces.</p>
+</section>
+
+<p><a asp-controller="Dashboard" asp-action="Index">Back to dashboard</a></p>

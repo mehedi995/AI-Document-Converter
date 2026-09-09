@@ -6,6 +6,7 @@ using AI.Document.Converter.Domain.Entities;
 using AI.Document.Converter.Domain.Enums;
 using AI.Document.Converter.Domain.Exceptions;
 using AI.Document.Converter.Persistence;
+using AI.Document.Converter.Persistence.Billing;
 using AI.Document.Converter.Persistence.Entities;
 using AI.Document.Converter.Persistence.Presets;
 using AI.Document.Converter.Persistence.Storage;
@@ -24,6 +25,7 @@ public sealed class JobProcessor
     private readonly IMarkdownGenerator _markdownGenerator;
     private readonly IChunkGenerator _chunkGenerator;
     private readonly JobClaimer _claimer;
+    private readonly MeteringService _metering;
     private readonly ILogger<JobProcessor> _logger;
 
     public JobProcessor(
@@ -33,6 +35,7 @@ public sealed class JobProcessor
         IMarkdownGenerator markdownGenerator,
         IChunkGenerator chunkGenerator,
         JobClaimer claimer,
+        MeteringService metering,
         ILogger<JobProcessor> logger)
     {
         _db = db;
@@ -41,6 +44,7 @@ public sealed class JobProcessor
         _markdownGenerator = markdownGenerator;
         _chunkGenerator = chunkGenerator;
         _claimer = claimer;
+        _metering = metering;
         _logger = logger;
     }
 
@@ -294,11 +298,20 @@ public sealed class JobProcessor
         item.LeaseExpiresAtUtc = null;
 
         await _db.SaveChangesAsync(cancellationToken);
+
+        // Charged only now, and only for output that exists. Settling before
+        // the artifact was durable would bill for work a crash could still
+        // erase; the ledger's idempotency key is what makes it safe for a
+        // replayed item to reach this line twice (SR-BIL-5).
+        var price = ConversionCredits.ForExtractedDocument(extracted);
+        await _metering.SettleAsync(
+            workspaceId, item.JobId, item.Id, price.Credits, price.Basis, nowUtc, cancellationToken);
+
         await RollUpJobStatusAsync(item.JobId, cancellationToken);
 
         _logger.LogInformation(
-            "Published item {ItemId} as {Status} with {WarningCount} warning(s)",
-            item.Id, item.Status, extracted.Warnings.Count);
+            "Published item {ItemId} as {Status} with {WarningCount} warning(s), charged {Credits} credit(s)",
+            item.Id, item.Status, extracted.Warnings.Count, price.Credits);
     }
 
     // Chunks are stored as ONE JSON object rather than one object per chunk.
@@ -415,7 +428,10 @@ public sealed class JobProcessor
             if (job.Status == rolledUpStatus && job.CompletedAtUtc is not null)
             {
                 // The other worker already wrote exactly this. Nothing to do -
-                // and importantly, not an error.
+                // and importantly, not an error. The hold is still closed here
+                // because whichever worker lost the race must not leave it
+                // held; CloseReservationAsync is a no-op once it is resolved.
+                await _metering.CloseReservationAsync(jobId, DateTime.UtcNow, cancellationToken);
                 return;
             }
 
@@ -425,6 +441,11 @@ public sealed class JobProcessor
             try
             {
                 await _db.SaveChangesAsync(cancellationToken);
+
+                // The job is finished, so whatever the estimate held beyond what
+                // the items actually cost goes back to the customer. A job that
+                // failed outright settled nothing, so its entire hold returns.
+                await _metering.CloseReservationAsync(jobId, DateTime.UtcNow, cancellationToken);
                 return;
             }
             catch (DbUpdateConcurrencyException) when (attempt < maxAttempts)

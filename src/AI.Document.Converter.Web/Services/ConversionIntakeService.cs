@@ -1,9 +1,15 @@
 using System.Security.Cryptography;
 using AI.Document.Converter.Persistence;
+using AI.Document.Converter.Persistence.Billing;
 using AI.Document.Converter.Persistence.Entities;
 using AI.Document.Converter.Persistence.Storage;
 
 namespace AI.Document.Converter.Web.Services;
+
+// Thrown when a reconvert cannot be afforded. Reconvert has no per-file
+// rejection list to put a refusal in - it either runs or it does not - so the
+// refusal is raised rather than returned.
+public sealed class InsufficientCreditsException(string message) : Exception(message);
 
 public sealed record IntakeFile(string FileName, string ContentType, long SizeBytes, Stream Content);
 
@@ -32,17 +38,20 @@ public sealed class ConversionIntakeService
     private readonly ConverterDbContext _db;
     private readonly IObjectStorage _storage;
     private readonly UploadValidator _validator;
+    private readonly MeteringService _metering;
     private readonly ILogger<ConversionIntakeService> _logger;
 
     public ConversionIntakeService(
         ConverterDbContext db,
         IObjectStorage storage,
         UploadValidator validator,
+        MeteringService metering,
         ILogger<ConversionIntakeService> logger)
     {
         _db = db;
         _storage = storage;
         _validator = validator;
+        _metering = metering;
         _logger = logger;
     }
 
@@ -76,6 +85,8 @@ public sealed class ConversionIntakeService
         };
         _db.ConversionJobs.Add(job);
 
+        long estimatedCredits = 0;
+
         foreach (var document in documents)
         {
             // Defence in depth. These come from a workspace-scoped query, but a
@@ -88,25 +99,71 @@ public sealed class ConversionIntakeService
                     "Refusing to build a job from a document belonging to another workspace.");
             }
 
+            // A reconvert is a real run and costs real compute, so it is metered
+            // like any other. Re-reading the stored bytes to price them is the
+            // only option here: the file was uploaded on an earlier request, so
+            // there is no stream left to inspect.
+            var estimate = await EstimateStoredDocumentAsync(document, cancellationToken);
+            estimatedCredits += estimate;
+
             _db.ConversionJobItems.Add(new ConversionJobItem
             {
                 Id = Guid.NewGuid(),
                 JobId = job.Id,
                 WorkspaceId = workspaceId,
                 SourceDocumentId = document.Id,
-                Status = JobStatus.Queued
+                Status = JobStatus.Queued,
+                EstimatedCredits = estimate
             });
         }
 
-        // One commit, exactly as for a fresh upload: the job exists and is
-        // claimable at the same instant (SR-JOB-1).
+        // One commit, exactly as for a fresh upload: the job exists, is
+        // claimable, and has an allowance behind it at the same instant
+        // (SR-JOB-1, SR-BIL-5).
+        await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+
         await _db.SaveChangesAsync(cancellationToken);
 
+        var reservation = await _metering.TryReserveAsync(
+            workspaceId, job.Id, estimatedCredits, nowUtc, cancellationToken);
+
+        if (!reservation.Granted)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw new InsufficientCreditsException(reservation.Refusal
+                ?? "This workspace does not have enough credits for that conversion.");
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+
         _logger.LogInformation(
-            "Created reconvert job {JobId} over {DocumentCount} existing document(s)",
-            job.Id, documents.Count);
+            "Created reconvert job {JobId} over {DocumentCount} existing document(s), "
+            + "holding {Credits} credit(s)",
+            job.Id, documents.Count, reservation.RequestedCredits);
 
         return job.Id;
+    }
+
+    private async Task<long> EstimateStoredDocumentAsync(
+        SourceDocument document, CancellationToken cancellationToken)
+    {
+        await using var stored = await _storage.OpenReadAsync(document.StorageKey, cancellationToken);
+
+        if (stored is null)
+        {
+            // The bytes have passed their retention period. The job will fail on
+            // that when it runs; quoting the floor keeps the hold honest rather
+            // than blocking here on a billing question.
+            return ConversionCredits.MinimumCreditsPerFile;
+        }
+
+        // CreditEstimator seeks, and a storage stream is not guaranteed to be
+        // seekable, so it is buffered first. Bounded by the upload size limit
+        // that was enforced when this document was accepted.
+        await using var seekable = new MemoryStream();
+        await stored.CopyToAsync(seekable, cancellationToken);
+
+        return CreditEstimator.ForUpload(document.OriginalFileName, seekable).Credits;
     }
 
     public async Task<IntakeResult> AcceptAsync(
@@ -119,6 +176,8 @@ public sealed class ConversionIntakeService
         var outcomes = new List<IntakeFileOutcome>(files.Count);
         var acceptedDocuments = new List<SourceDocument>();
         var writtenKeys = new List<string>();
+        var estimatePerDocument = new Dictionary<Guid, long>();
+        long estimatedCredits = 0;
 
         var nowUtc = DateTime.UtcNow;
 
@@ -152,6 +211,11 @@ public sealed class ConversionIntakeService
                 var documentId = Guid.NewGuid();
                 var storageKey = StorageKeys.ForSource(workspaceId, documentId);
 
+                // Priced from the container before the bytes are handed to
+                // storage, while the stream is still here to read.
+                var estimate = CreditEstimator.ForUpload(file.FileName, file.Content);
+                estimatedCredits += estimate.Credits;
+
                 file.Content.Position = 0;
                 var writtenBytes = await _storage.WriteAsync(storageKey, file.Content, cancellationToken);
                 writtenKeys.Add(storageKey);
@@ -171,6 +235,7 @@ public sealed class ConversionIntakeService
 
                 _db.SourceDocuments.Add(document);
                 acceptedDocuments.Add(document);
+                estimatePerDocument[document.Id] = estimate.Credits;
 
                 outcomes.Add(new IntakeFileOutcome(
                     document.OriginalFileName, Accepted: true, null, null));
@@ -204,17 +269,62 @@ public sealed class ConversionIntakeService
                     JobId = job.Id,
                     WorkspaceId = workspaceId,
                     SourceDocumentId = document.Id,
-                    Status = JobStatus.Queued
+                    Status = JobStatus.Queued,
+                    EstimatedCredits = estimatePerDocument[document.Id]
                 });
             }
 
-            // The single commit that makes the work exist and makes it
-            // claimable, at the same instant.
+            // The job, its items and its allowance hold commit TOGETHER.
+            //
+            // Splitting them has a failure on each side: reserving first and
+            // then failing to commit leaves a hold against a job that does not
+            // exist, which nothing will ever release; committing first and then
+            // reserving leaves a claimable job that a worker can start before
+            // the allowance was ever checked. One transaction has neither gap.
+            //
+            // The conditional UPDATE inside TryReserveAsync keeps its guarantee
+            // here: it holds the period row until this transaction commits, so
+            // simultaneous uploads queue behind each other on that row instead
+            // of both reading the same balance.
+            await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+
             await _db.SaveChangesAsync(cancellationToken);
 
+            var reservation = await _metering.TryReserveAsync(
+                workspaceId, job.Id, estimatedCredits, nowUtc, cancellationToken);
+
+            if (!reservation.Granted)
+            {
+                // Out of allowance. Deliberately NOT an automatic overage
+                // (SR-BIL-5): the customer is stopped rather than billed past
+                // what they agreed to. Nothing is left behind - the job rolls
+                // back and the stored bytes are removed below.
+                await transaction.RollbackAsync(cancellationToken);
+                await CleanUpAsync(writtenKeys);
+
+                _logger.LogInformation(
+                    "Refused job for workspace {WorkspaceId}: {RequestedCredits} credit(s) requested, "
+                    + "{AvailableCredits} available",
+                    workspaceId, reservation.RequestedCredits, reservation.AvailableCredits);
+
+                return new IntakeResult(
+                    null,
+                    outcomes.Select(o => o.Accepted
+                        ? o with
+                        {
+                            Accepted = false,
+                            RejectionCode = "insufficientCredits",
+                            RejectionMessage = reservation.Refusal
+                        }
+                        : o).ToList());
+            }
+
+            await transaction.CommitAsync(cancellationToken);
+
             _logger.LogInformation(
-                "Accepted job {JobId} with {FileCount} file(s) for workspace {WorkspaceId}",
-                job.Id, acceptedDocuments.Count, workspaceId);
+                "Accepted job {JobId} with {FileCount} file(s) for workspace {WorkspaceId}, "
+                + "holding {Credits} credit(s)",
+                job.Id, acceptedDocuments.Count, workspaceId, reservation.RequestedCredits);
 
             return new IntakeResult(job.Id, outcomes);
         }
@@ -223,21 +333,25 @@ public sealed class ConversionIntakeService
             // Bytes are written before the commit, so a failure here would leave
             // orphaned objects that no row references and no retention sweep
             // knows about. Clean them up rather than leaking storage.
-            foreach (var key in writtenKeys)
-            {
-                try
-                {
-                    await _storage.DeleteAsync(key, CancellationToken.None);
-                }
-                catch (Exception cleanupFailure)
-                {
-                    // Never let cleanup mask the original failure.
-                    _logger.LogWarning(
-                        cleanupFailure, "Failed to clean up orphaned object after a failed intake");
-                }
-            }
-
+            await CleanUpAsync(writtenKeys);
             throw;
+        }
+    }
+
+    private async Task CleanUpAsync(IReadOnlyList<string> writtenKeys)
+    {
+        foreach (var key in writtenKeys)
+        {
+            try
+            {
+                await _storage.DeleteAsync(key, CancellationToken.None);
+            }
+            catch (Exception cleanupFailure)
+            {
+                // Never let cleanup mask the original failure.
+                _logger.LogWarning(
+                    cleanupFailure, "Failed to clean up orphaned object after a failed intake");
+            }
         }
     }
 }

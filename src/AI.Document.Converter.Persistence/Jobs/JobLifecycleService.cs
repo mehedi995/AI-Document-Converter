@@ -1,3 +1,4 @@
+using AI.Document.Converter.Persistence.Billing;
 using AI.Document.Converter.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -21,11 +22,14 @@ public sealed class JobLifecycleService
     public const int MaxAttemptsPerItem = 3;
 
     private readonly ConverterDbContext _db;
+    private readonly MeteringService _metering;
     private readonly ILogger<JobLifecycleService> _logger;
 
-    public JobLifecycleService(ConverterDbContext db, ILogger<JobLifecycleService> logger)
+    public JobLifecycleService(
+        ConverterDbContext db, MeteringService metering, ILogger<JobLifecycleService> logger)
     {
         _db = db;
+        _metering = metering;
         _logger = logger;
     }
 
@@ -82,6 +86,12 @@ public sealed class JobLifecycleService
 
         await _db.SaveChangesAsync(cancellationToken);
 
+        // Cancelled work produces no output, so its hold goes back. Anything
+        // that DID publish before the cancellation was already settled, and
+        // CloseReservationAsync returns only the unconsumed remainder - the
+        // customer keeps what they did not use without losing what they did.
+        await _metering.CloseReservationAsync(jobId, nowUtc, cancellationToken);
+
         _logger.LogInformation(
             "Job {JobId} cancelled: {Prevented} item(s) prevented from starting, {Running} already running",
             jobId, prevented, running);
@@ -119,7 +129,7 @@ public sealed class JobLifecycleService
             return new RetryOutcome(true, 0, job.Items.Count, "Nothing in this conversion failed.");
         }
 
-        var requeued = 0;
+        var requeuedItems = new List<ConversionJobItem>();
         var exhausted = 0;
 
         foreach (var item in failed)
@@ -148,8 +158,10 @@ public sealed class JobLifecycleService
             item.LeaseExpiresAtUtc = null;
             // AttemptCount is deliberately NOT reset. It is what bounds the
             // retries; clearing it would make MaxAttemptsPerItem unreachable.
-            requeued++;
+            requeuedItems.Add(item);
         }
+
+        var requeued = requeuedItems.Count;
 
         if (requeued == 0)
         {
@@ -164,10 +176,45 @@ public sealed class JobLifecycleService
         job.Status = JobStatus.Queued;
         job.CompletedAtUtc = null;
 
+        // A NEW hold, covering only the items being re-run.
+        //
+        // The original hold was closed when the job first reached a terminal
+        // state, so without this a retry would start work with no allowance
+        // behind it - and a customer with an empty balance could keep retrying
+        // into a negative one. Requeued items are re-priced from what they were
+        // quoted at on acceptance.
+        var retryCredits = requeuedItems.Sum(i => Math.Max(i.EstimatedCredits, ConversionCredits.MinimumCreditsPerFile));
+
+        await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+
         await _db.SaveChangesAsync(cancellationToken);
 
+        // Close any hold still open from the previous run before taking a new
+        // one. Normally the roll-up closed it when the job failed, but a job
+        // that was never rolled up - a worker that died, a restore - can still
+        // be carrying one, and a job may hold only one at a time. Closing it
+        // first also returns whatever the failed run did not consume, so the
+        // customer is not charged twice for the same attempt.
+        await _metering.CloseReservationAsync(jobId, nowUtc, cancellationToken);
+
+        var reservation = await _metering.TryReserveAsync(
+            workspaceId, jobId, retryCredits, nowUtc, cancellationToken);
+
+        if (!reservation.Granted)
+        {
+            // Refused, and nothing changes: the job stays exactly as it was
+            // rather than being left queued with no allowance behind it.
+            await transaction.RollbackAsync(cancellationToken);
+
+            return new RetryOutcome(true, 0, exhausted, reservation.Refusal);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+
         _logger.LogInformation(
-            "Job {JobId} retry: {Requeued} item(s) requeued, {Exhausted} not retryable", jobId, requeued, exhausted);
+            "Job {JobId} retry: {Requeued} item(s) requeued, {Exhausted} not retryable, "
+            + "holding {Credits} credit(s)",
+            jobId, requeued, exhausted, retryCredits);
 
         return new RetryOutcome(true, requeued, exhausted, null);
     }

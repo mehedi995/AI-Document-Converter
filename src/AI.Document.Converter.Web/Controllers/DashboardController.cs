@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using AI.Document.Converter.Persistence;
+using AI.Document.Converter.Persistence.Billing;
 using AI.Document.Converter.Persistence.Entities;
 using AI.Document.Converter.Web.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -16,11 +17,14 @@ public sealed class DashboardController : Controller
 
     private readonly ConverterDbContext _db;
     private readonly WorkspaceAccessService _workspaceAccess;
+    private readonly MeteringService _metering;
 
-    public DashboardController(ConverterDbContext db, WorkspaceAccessService workspaceAccess)
+    public DashboardController(
+        ConverterDbContext db, WorkspaceAccessService workspaceAccess, MeteringService metering)
     {
         _db = db;
         _workspaceAccess = workspaceAccess;
+        _metering = metering;
     }
 
     [HttpGet("")]
@@ -39,7 +43,17 @@ public sealed class DashboardController : Controller
 
         var jobs = await LoadRecentJobsAsync(workspace.Id, cancellationToken);
 
-        return View(new DashboardViewModel(workspace.Name, workspace.Slug, jobs));
+        // Read-only: looking at the dashboard must not start a trial period.
+        var period = await _metering.FindCurrentPeriodAsync(
+            workspace.Id, DateTime.UtcNow, cancellationToken);
+
+        return View(new DashboardViewModel(
+            workspace.Name,
+            workspace.Slug,
+            jobs,
+            period?.AvailableCredits,
+            period?.IncludedCredits,
+            period?.ReservedCredits));
     }
 
     // Polled by the page only while something is actually in flight. Returns the
@@ -128,4 +142,10 @@ public sealed record DashboardJobRow(
 }
 
 public sealed record DashboardViewModel(
-    string WorkspaceName, string WorkspaceSlug, IReadOnlyList<DashboardJobRow> RecentJobs);
+    string WorkspaceName,
+    string WorkspaceSlug,
+    IReadOnlyList<DashboardJobRow> RecentJobs,
+    // Null until something has been metered this period.
+    long? AvailableCredits,
+    long? IncludedCredits,
+    long? HeldCredits);

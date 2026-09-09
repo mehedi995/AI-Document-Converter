@@ -1,4 +1,5 @@
 using AI.Document.Converter.Persistence;
+using AI.Document.Converter.Persistence.Billing;
 using AI.Document.Converter.Persistence.Entities;
 using AI.Document.Converter.Persistence.Export;
 using AI.Document.Converter.Persistence.Jobs;
@@ -78,6 +79,12 @@ builder.Services.ConfigureApplicationCookie(options =>
 
 builder.Services.AddScoped<WorkspaceProvisioner>();
 builder.Services.AddScoped<WorkspaceAccessService>();
+// SR-BIL-1: no provider is approved for this seller, so checkout is
+// disabled by the implementation rather than by a flag. Adopting a
+// provider means changing this one line.
+builder.Services.AddSingleton<IBillingProvider, NoBillingProvider>();
+builder.Services.AddScoped<SubscriptionService>();
+builder.Services.AddScoped<MeteringService>();
 builder.Services.AddScoped<ConversionIntakeService>();
 
 // The upload page shows these values and the worker's sweep enforces them, both

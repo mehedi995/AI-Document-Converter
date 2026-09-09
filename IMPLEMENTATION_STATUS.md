@@ -822,14 +822,147 @@ tool like this on a healthy system.
 
 ---
 
+### Increment: metering, credits and the provider-neutral billing boundary (Phase 3, provider-independent half)
+
+**What works.** A conversion cannot be started without an allowance behind it, cannot be charged
+twice, and cannot quietly consume credits it did not use. Verified end to end against a running
+instance, not only in tests.
+
+**Conversion credits (SR-BIL-4).** A deterministic unit, versioned as `credits-v1`, defined
+separately from AI token estimates because a bill must be reproducible from the input alone while a
+token count depends on a tokenizer we do not control. One credit per PDF page, per PPTX slide, per
+3,000 characters of DOCX/TXT text, per 1,000 non-empty spreadsheet cells; minimum one per non-empty
+file. Characters are counted as **Unicode scalar values** - the Bengali greeting used in the tests is
+9 scalar values, 10 UTF-16 code units and 26 UTF-8 bytes, and billing on bytes would charge a Bengali
+user roughly three times what an ASCII user pays for the same writing. All three counts are pinned in
+a test so a "simplification" to `string.Length` is caught.
+
+The Python engine now reports `billableSourceCells` for XLSX - counted in the SOURCE before merged
+cells are expanded, formulas once - because the extracted model has already expanded merges and
+would over-count. Measured 513 for `samples/sample.xlsx`.
+
+**Pre-extraction estimate.** `CreditEstimator` prices a file from its CONTAINER, before any
+extraction runs and before any Python subprocess starts - which is also what makes it safe to expose
+as a quote, since pricing a file must not cost us the processing it describes.
+
+It is deliberately **not** size-based. Measuring the sample corpus showed bytes-per-unit varying by
+more than six times *within* one format - `sample.docx` is 182 bytes per character,
+`image-sample.docx` is 1,196, because one embeds a picture. A size heuristic would refuse
+small-but-heavy files and wave through large-but-empty ones. Instead: PPTX slide parts (exact), XLSX
+declared used range (an upper bound, which is the safe direction), DOCX body text, TXT scalar values
+(exact), PDF page-tree scan (best effort, never advertised as exact). Verified against ground truth
+measured independently with pdfplumber/openpyxl/python-docx: 3 and 1 pages, 2 and 1 slides, and a
+spreadsheet bound at or above its true 515 cells.
+
+**Atomic reservation (SR-BIL-5).** `TryReserveAsync` applies the hold with a **single conditional
+UPDATE** whose WHERE clause re-checks the balance, so there is no application-side window in which
+two uploads both read the same remaining credits. Proven with ten concurrent 20-credit jobs against
+an allowance of 100 on real PostgreSQL, each on its own connection: **exactly five granted**, balance
+never negative.
+
+Intake commits the job, its items and the hold in **one transaction**. Splitting them fails in both
+directions - reserving first leaks a hold against a job that never existed, committing first leaves a
+claimable job a worker can start before the allowance was checked.
+
+**Settlement.** Charged only when output is durably published, for what the engine actually reported,
+priced from the document's own text rather than from the generated Markdown - billing for our heading
+hashes and table pipes would charge customers for our formatting. Idempotent by a unique index on the
+ledger's `IdempotencyKey`, because at-least-once delivery makes a duplicate certain rather than
+hypothetical. The unused portion of the hold is returned when the job finishes.
+
+**Refusal, not overage.** A job beyond the allowance is refused with the shortfall named, and nothing
+is left behind: the transaction rolls back and the already-written bytes are deleted. Automatic
+monetary overages stay disabled.
+
+**Every path that creates or re-runs work is metered** - upload, reconvert (which re-reads stored
+bytes to price them), and retry (which takes a *new* hold covering only the items being re-run,
+because the original was closed when the job first finished). Cancel returns the hold.
+
+**Provider-neutral boundary (SR-BIL-1).** `IBillingProvider` names no provider. The registered
+implementation is `NoBillingProvider`, which **refuses** rather than pretends - there is no
+configuration flag that turns it into a working integration and no half-written provider code behind
+an `if`. A stub returning fake success would grant entitlements nobody paid for, which is the worst
+failure available to a billing system. Adopting a provider is one line in `Program.cs`.
+
+Entitlements change **only** through verified provider evidence; there is no method that grants a
+plan from a request body. Applied events are recorded under a unique `(provider, eventId)` index, so
+a redelivered webhook cannot extend a subscription twice. A scheduled cancellation keeps access to
+the end of the paid period and a failed payment does not remove it (SR-BIL-3) - both pinned by tests
+using a fake provider.
+
+**No prices anywhere.** `PlanCatalog` holds allowances and limits, deliberately no monetary figures,
+and the billing page states "Pricing has not been set."
+
+**Two defects found and fixed while building this**, both by tests rather than by inspection:
+
+- A unique index on `UsageReservation.JobId` made a retry impossible. The invariant is *one open hold
+  per job*, not one ever, so the index is now filtered on `Status = Held` - which also makes the
+  `SingleOrDefault(Held)` lookups safe by schema rather than by hope.
+- A ledger entry read `0 non-empty cells` for a document whose count was never reported. Stating a
+  count we do not have, on the one record a disputing customer is shown, is wrong; an unreported
+  count now reads `minimum charge - non-empty cells not reported by the extractor`.
+
+The compiler caught a third: a controller field added without its assignment, which would have thrown
+on the dashboard.
+
+**Commands actually run.**
+
+```
+dotnet test AI.Document.Converter.sln -c Debug --filter "Category!=Performance"
+  -> 121 unit + 144 web + 45 integration = 310 passed, 0 failed
+dotnet build AI.Document.Converter.sln -c Release      -> Build succeeded, 0 warnings, 0 errors
+python scripts/check-licences.py                       -> PASSED (exit 0)
+dotnet ef database update                              -> 3 migrations applied to adc_dev
+```
+
+**Verified against a running instance** (registered a fresh account, confirmed it via the dev mail
+file, signed in, uploaded `samples/sample.pdf`, ran the worker):
+
+| Stage | Observed |
+|---|---|
+| After upload | `trial@v1`, included 50, **reserved 3**, settled 0; job item `EstimatedCredits = 3` |
+| After worker | reserved **0**, settled **3**; reservation status `Settled` |
+| Ledger | `3` credits, basis **`3 pages`**, policy `credits-v1`, plan `trial@v1` |
+
+Pages render for a signed-in user: `/dashboard` 200, `/billing` 200, `/upload` 200; all three
+redirect to login when anonymous.
+
+**Limitations, stated plainly.**
+
+- **There is no per-file quote before upload.** The true cost of a document is not knowable until its
+  bytes arrive, so the upload page shows the balance and the counting rule instead of a figure it
+  would have to guess at. Calling this a "preflight quote UI" would overstate it.
+- The credit ratios are a documented deterministic unit, **not validated pricing**. They must be
+  cost-tested before anything is sold.
+- Settlement is authoritative and can exceed its hold, so a period balance can go negative if an
+  estimate was low. That is not a monetary overage - the customer is never billed past their plan -
+  but it means the estimate leaning high is load-bearing.
+- The PDF page scan cannot see a page tree inside a compressed object stream. It is never reported as
+  exact, and a hold that is too small is corrected at settlement.
+- `SubscriptionService` is exercised only against a **test double**. No real provider integration
+  exists or has been tested, because none is approved.
+- Worker settlement is covered by tests with a **stubbed extractor** - deliberately, since what is
+  under test is billing, not whether pdfplumber can read a table.
+
+
 ## 2. Not started
 
-Phases 1–4 in full: web host, identity/workspaces, upload, persisted jobs and durable queue, results
-workbench, history, export, plans/metering/billing, operator console, pilot benchmarks.
+**Superseded 2026-09-09.** This section previously read "No SaaS code exists yet beyond the
+engine/model work above... Nothing in this repository should be described as a working SaaS." That is
+no longer true and is corrected here rather than quietly deleted: the web host, identity and
+workspaces, upload and validation, persisted jobs with leases, results, history, export, retention,
+orphan reconciliation, and now metering and the billing boundary are all implemented with evidence in
+§1.
 
-**No SaaS code exists yet beyond the engine/model work above.** No web project, no database, no
-migrations, no authentication, no tenancy, no billing. Nothing in this repository should be
-described as a working SaaS.
+Still not started:
+
+- **Operator console** (SaaS §5.11). Nothing exists.
+- **Any real payment provider integration.** Blocked on approval; the boundary is ready (§1).
+- **Pilot benchmarks** against a realistic corpus. The sample corpus is small and synthetic.
+- **Cost testing of the credit ratios.** They are deterministic and documented, but no unit economics
+  work has been done, so no price can responsibly be set from them yet.
+- **Team collaboration, OCR, public API, SSO, private deployment.** Not implemented, and must not be
+  advertised.
 
 ---
 
@@ -854,38 +987,39 @@ Verified against source and executed runs, these documented claims do **not** ho
 |---|---|---|---|
 | ~~1~~ | ~~Database and role~~ | - | **RESOLVED 2026-09-09.** `adc_dev` + `adc_app` created, `InitialSchema` applied. The app role password is randomly generated, stored only in user secrets, and is not the `postgres` password. |
 | 2 | **PyMuPDF AGPL** | — | **RESOLVED** — replaced with pdfplumber (MIT). |
-| 3 | Billing provider eligibility (Bangladesh seller) | Phase 3 only | Deferred by design; build a provider-neutral boundary first. Stripe merchant eligibility is not assumed. |
+| 3 | Billing provider eligibility (Bangladesh seller) | **Live checkout only** | The provider-neutral boundary, plans, credits, metering and subscription rules are **built and tested** (§1). What is blocked is one provider implementation and taking actual money. Stripe merchant eligibility is not assumed. |
 | 4 | No container runtime (Docker not installed) | Worker sandboxing (SR-SEC-5); real Linux verification of A-03 | Not blocking Phase 1 on Windows, but the engine's Linux support is still proven only by simulation. |
 
 ## 5. Next concrete task
 
-**Phase 3 is blocked on a business decision, not on code.** SR-BIL-1 requires implementing ONE
-approved provider first, and provider eligibility for a Bangladesh seller is still unverified:
-Stripe merchant eligibility is not assumed, Paddle is a candidate subject to approval, and a local
-provider such as SSLCOMMERZ needs recurring auto-debit verified separately (one-time checkout does
-not prove it).
+**Phase 3's provider-independent half is done** (§1). What remains in Phase 3 is genuinely blocked on
+a business decision: SR-BIL-1 requires implementing ONE approved provider, and eligibility for a
+Bangladesh seller is still unverified. Stripe merchant eligibility is **not** assumed; Paddle is a
+candidate subject to approval; a local provider such as SSLCOMMERZ needs recurring auto-debit verified
+separately, since one-time checkout does not prove it.
 
-Work that can proceed without that answer:
+When a provider is approved, the work is: one `IBillingProvider` implementation, one line in each
+`Program.cs`, a signed-callback endpoint, and end-to-end tests against the provider's sandbox. The
+rules that surround it - verification-only entitlements, replay protection, cancellation semantics -
+are already implemented and tested.
 
-1. **Plan and metering model** - versioned plan configuration, conversion credits as a deterministic
-   unit (SR-BIL-4), and the usage ledger with idempotency keys. All provider-neutral.
-2. **Atomic allowance reservation** (SR-BIL-5) - reserve on job acceptance so concurrent jobs cannot
-   overspend; release on rejected, failed or cancelled work.
-3. The provider-neutral billing boundary itself, with live checkout clearly disabled.
+**Next, without needing that decision** (priority order):
 
-**Decision-independent work that can proceed in parallel** (in priority order):
-
-1. **Plumb extraction mode through .NET** — add `mode` to `ExtractRequestPayload` so XLSX summary
-   mode is reachable from the host and its Error-severity `sheetTruncated` warning is covered by an
+1. **Operator console** (SaaS §5.11) - the last unstarted piece of the product that does not depend on
+   a provider. Needs: job inspection across workspaces with an explicit audit trail, retention and
+   reconciliation status, and a way to see a workspace's usage without exposing document content.
+2. **Cost-test the credit ratios** against measured processing time and storage, so a price can
+   eventually be set from evidence rather than from the illustrative figures in the blueprint.
+3. **Plumb extraction mode through .NET** - add `mode` to `ExtractRequestPayload` so XLSX summary mode
+   is reachable from the host and its Error-severity `sheetTruncated` warning is covered by an
    integration test. Today .NET can only obtain faithful extraction, which is the safe default but
    leaves that warning path proven at the Python level only.
-2. **D-05** extract once and fan out. `GenerateChunksAsync` still re-extracts the document from
-   scratch, spawning a second engine subprocess for a file `ConvertAsync` already parsed — 2x
-   metered compute and latency per chunked conversion. Deferred until the SaaS pipeline exists,
-   because the desktop flow deliberately calls the two operations independently.
-3. **B-08** `createdDate` uses `os.path.getctime`, which on a server is upload time, not authorship
+4. **D-05** extract once and fan out. `GenerateChunksAsync` still re-extracts from scratch, spawning a
+   second engine subprocess for a file `ConvertAsync` already parsed - 2x metered compute per chunked
+   conversion, which now costs the customer credits rather than just latency.
+5. **B-08** `createdDate` uses `os.path.getctime`, which on a server is upload time, not authorship
    time. Prefer embedded document metadata, else omit.
-4. Real Linux verification of the engine once a container runtime exists (A-03 follow-up). The
+6. Real Linux verification of the engine once a container runtime exists (A-03 follow-up). The
    platform guard is proven only by simulation on Windows so far.
 
 ### Notes for whoever picks this up

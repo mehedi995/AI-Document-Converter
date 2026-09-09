@@ -8,6 +8,7 @@ using AI.Document.Converter.Infrastructure.DocumentProcessing.PowerPoint;
 using AI.Document.Converter.Infrastructure.DocumentProcessing.Text;
 using AI.Document.Converter.Infrastructure.Python;
 using AI.Document.Converter.Persistence;
+using AI.Document.Converter.Persistence.Billing;
 using AI.Document.Converter.Persistence.Export;
 using AI.Document.Converter.Persistence.Jobs;
 using AI.Document.Converter.Persistence.Retention;
@@ -87,6 +88,12 @@ builder.Services.AddScoped<OrphanReconciliationService>();
 builder.Services.AddHostedService<OrphanReconciliationHostedService>();
 
 builder.Services.AddScoped<JobClaimer>();
+// SR-BIL-1: no provider is approved for this seller, so checkout is
+// disabled by the implementation rather than by a flag. Adopting a
+// provider means changing this one line.
+builder.Services.AddSingleton<IBillingProvider, NoBillingProvider>();
+builder.Services.AddScoped<SubscriptionService>();
+builder.Services.AddScoped<MeteringService>();
 builder.Services.AddScoped<JobProcessor>();
 builder.Services.AddHostedService<ConversionWorkerService>();
 

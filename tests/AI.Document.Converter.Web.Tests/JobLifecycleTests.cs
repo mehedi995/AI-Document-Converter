@@ -1,4 +1,5 @@
 using AI.Document.Converter.Persistence;
+using AI.Document.Converter.Persistence.Billing;
 using AI.Document.Converter.Persistence.Entities;
 using AI.Document.Converter.Persistence.Jobs;
 using Microsoft.EntityFrameworkCore;
@@ -15,7 +16,9 @@ public sealed class JobLifecycleTests
     public JobLifecycleTests(PostgresFixture fixture) => _fixture = fixture;
 
     private static JobLifecycleService Service(ConverterDbContext db) =>
-        new(db, NullLogger<JobLifecycleService>.Instance);
+        new(db,
+            new MeteringService(db, NullLogger<MeteringService>.Instance),
+            NullLogger<JobLifecycleService>.Instance);
 
     private sealed record Seeded(Guid WorkspaceId, Guid JobId, Dictionary<string, Guid> ItemsByName);
 
@@ -85,6 +88,114 @@ public sealed class JobLifecycleTests
 
         await db.SaveChangesAsync();
         return new Seeded(workspaceId, job.Id, itemIds);
+    }
+
+    // Gives a seeded job an allowance and a hold, the way intake would have left
+    // it. Returns the period id so a test can read the balance back.
+    private static async Task<Guid> SeedAllowanceAsync(
+        ConverterDbContext db, Guid workspaceId, Guid jobId, long included, long held)
+    {
+        var nowUtc = DateTime.UtcNow;
+
+        var period = new UsagePeriod
+        {
+            Id = Guid.NewGuid(),
+            WorkspaceId = workspaceId,
+            StartsAtUtc = nowUtc.AddDays(-1),
+            EndsAtUtc = nowUtc.AddDays(29),
+            PlanCode = "standard@v1",
+            IncludedCredits = included,
+            ReservedCredits = held,
+            CreatedAtUtc = nowUtc
+        };
+        db.UsagePeriods.Add(period);
+
+        db.UsageReservations.Add(new UsageReservation
+        {
+            Id = Guid.NewGuid(),
+            WorkspaceId = workspaceId,
+            UsagePeriodId = period.Id,
+            JobId = jobId,
+            EstimatedCredits = held,
+            Status = ReservationStatus.Held,
+            PolicyVersion = ConversionCredits.PolicyVersion,
+            CreatedAtUtc = nowUtc
+        });
+
+        await db.SaveChangesAsync();
+        return period.Id;
+    }
+
+    // Cancelled work produced nothing, so the customer must not keep paying for
+    // it in held allowance they cannot spend elsewhere.
+    [Fact]
+    public async Task CancellingAJobReturnsItsHold()
+    {
+        await using var db = _fixture.CreateContext();
+        var seeded = await SeedAsync(
+            db, JobStatus.Queued, ("a.pdf", JobStatus.Queued, true, 0));
+        await SeedAllowanceAsync(db, seeded.WorkspaceId, seeded.JobId, included: 100, held: 20);
+
+        await Service(db).CancelAsync(
+            seeded.WorkspaceId, seeded.JobId, DateTime.UtcNow, CancellationToken.None);
+
+        var period = await db.UsagePeriods.SingleAsync(p => p.WorkspaceId == seeded.WorkspaceId);
+        Assert.Equal(0, period.ReservedCredits);
+        Assert.Equal(100, period.AvailableCredits);
+    }
+
+    // The first hold was closed when the job finished. Re-running work without
+    // taking a new one would let an empty balance keep buying compute.
+    [Fact]
+    public async Task RetryingTakesAFreshHoldForTheItemsBeingRerun()
+    {
+        await using var db = _fixture.CreateContext();
+        var seeded = await SeedAsync(
+            db, JobStatus.Failed, ("a.pdf", JobStatus.Failed, true, 1));
+        await SeedAllowanceAsync(db, seeded.WorkspaceId, seeded.JobId, included: 100, held: 0);
+
+        // Priced at what the file was quoted at on acceptance.
+        var item = await db.ConversionJobItems.SingleAsync(i => i.Id == seeded.ItemsByName["a.pdf"]);
+        item.EstimatedCredits = 4;
+        await db.SaveChangesAsync();
+
+        var outcome = await Service(db).RetryFailedAsync(
+            seeded.WorkspaceId, seeded.JobId, DateTime.UtcNow, CancellationToken.None);
+
+        Assert.Equal(1, outcome.ItemsRequeued);
+
+        var period = await db.UsagePeriods.SingleAsync(p => p.WorkspaceId == seeded.WorkspaceId);
+        Assert.Equal(4, period.ReservedCredits);
+    }
+
+    // Refusing a retry has to leave the job exactly as it was. Requeuing it
+    // anyway would hand a worker work with no allowance behind it.
+    [Fact]
+    public async Task ARetryThatCannotBeAffordedChangesNothing()
+    {
+        await using var db = _fixture.CreateContext();
+        var seeded = await SeedAsync(
+            db, JobStatus.Failed, ("a.pdf", JobStatus.Failed, true, 1));
+        await SeedAllowanceAsync(db, seeded.WorkspaceId, seeded.JobId, included: 2, held: 0);
+
+        var item = await db.ConversionJobItems.SingleAsync(i => i.Id == seeded.ItemsByName["a.pdf"]);
+        item.EstimatedCredits = 40;
+        await db.SaveChangesAsync();
+
+        var outcome = await Service(db).RetryFailedAsync(
+            seeded.WorkspaceId, seeded.JobId, DateTime.UtcNow, CancellationToken.None);
+
+        Assert.Equal(0, outcome.ItemsRequeued);
+        Assert.Contains("40 credit(s)", outcome.Refusal);
+
+        // The rollback has to undo the in-memory requeue as well as the rows.
+        db.ChangeTracker.Clear();
+
+        var afterwards = await db.ConversionJobItems.SingleAsync(i => i.Id == item.Id);
+        Assert.Equal(JobStatus.Failed, afterwards.Status);
+
+        var job = await db.ConversionJobs.SingleAsync(j => j.Id == seeded.JobId);
+        Assert.Equal(JobStatus.Failed, job.Status);
     }
 
     // FR-037: "No new files shall begin processing after cancellation."

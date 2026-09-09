@@ -151,6 +151,14 @@ public sealed class ConversionJobItem
 
     public required JobStatus Status { get; set; }
 
+    // What this file was quoted at when the job was accepted (SR-BIL-5).
+    //
+    // Kept per item rather than only as the job's single hold, because a RETRY
+    // re-queues some of a job's items and has to place a new hold covering just
+    // those. Without this the retry would either run unmetered or have to guess.
+    // It is an ESTIMATE: the ledger records what was actually charged.
+    public long EstimatedCredits { get; set; }
+
     // Queue delivery is at-least-once, so this counts real processing attempts
     // and bounds retries. Exactly-once execution is not claimed (SR-JOB-2).
     public int AttemptCount { get; set; }
