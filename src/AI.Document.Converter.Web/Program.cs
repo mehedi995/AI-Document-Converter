@@ -1,5 +1,6 @@
 using AI.Document.Converter.Persistence;
 using AI.Document.Converter.Persistence.Entities;
+using AI.Document.Converter.Persistence.Storage;
 using AI.Document.Converter.Web.Services;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -74,6 +75,15 @@ builder.Services.ConfigureApplicationCookie(options =>
 
 builder.Services.AddScoped<WorkspaceProvisioner>();
 builder.Services.AddScoped<WorkspaceAccessService>();
+builder.Services.AddScoped<ConversionIntakeService>();
+builder.Services.AddSingleton<UploadValidator>();
+
+// Local adapter for development. Production swaps in a private object store;
+// the interface exists so upload and download can be built and tested without
+// one, and so it is proven against a real implementation rather than a mock.
+builder.Services.Configure<LocalFileSystemObjectStorageOptions>(
+    builder.Configuration.GetSection("ObjectStorage"));
+builder.Services.AddSingleton<IObjectStorage, LocalFileSystemObjectStorage>();
 
 // The dev capture adapter is registered ONLY in Development. In any other
 // environment the application refuses to start until a real sender is wired up,

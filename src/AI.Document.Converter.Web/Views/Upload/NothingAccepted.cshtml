@@ -1,0 +1,11 @@
+@model AI.Document.Converter.Web.Services.IntakeResult
+@{ ViewData["Title"] = "Nothing was converted"; }
+<h1>Nothing was converted</h1>
+<p>None of the files could be accepted, so no conversion was started.</p>
+<ul>
+@foreach (var file in Model.Files)
+{
+    <li><strong>@file.FileName</strong> — @file.RejectionMessage</li>
+}
+</ul>
+<p><a asp-action="Index">Try again</a></p>

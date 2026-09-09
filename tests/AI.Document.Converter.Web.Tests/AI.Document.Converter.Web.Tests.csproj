@@ -23,6 +23,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\AI.Document.Converter.Web\AI.Document.Converter.Web.csproj" />
+    <ProjectReference Include="..\..\src\AI.Document.Converter.Domain\AI.Document.Converter.Domain.csproj" />
   </ItemGroup>
 
 </Project>

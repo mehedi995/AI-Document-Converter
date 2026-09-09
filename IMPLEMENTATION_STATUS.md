@@ -2,8 +2,8 @@
 
 **Last updated:** 2026-09-08
 **Baseline commit:** `d27e8a9` (desktop v1.0.0)
-**Current phase:** Phase 1 in progress. Account and workspace journey works end to end against a
-real database. **No upload, no job processing, no results view yet.**
+**Current phase:** Phase 1 in progress. Account, workspace and validated private upload work end
+to end. **No job processing and no results view yet** - nothing converts.
 
 > Scope note: the cloud SaaS edition is authorized and supersedes the desktop-only /
 > no-server / no-auth / no-database constraints **for the cloud edition only**. The desktop
@@ -393,6 +393,47 @@ access to other owners' databases, no file reads and no role creation - verified
 
 ---
 
+### Phase 1 - storage and validated private upload (increment 8)
+
+| Added | Purpose |
+|---|---|
+| `IObjectStorage` + `LocalFileSystemObjectStorage` | Opaque, tenant-prefixed keys; atomic publish via write-to-temp-then-move |
+| `StorageKeys` | The only place key layout is decided, so a caller cannot drop the tenant prefix |
+| `UploadValidator` | Content-based validation (SR-SEC-1, closing audit E-02 and E-03) |
+| `ConversionIntakeService` | Validate, store, persist job **before** anything is scheduled (SR-JOB-1) |
+| `UploadController` + views | Multi-file upload with retention disclosed before processing |
+
+**Validation now checks what the desktop app never did.** The desktop checked the file extension
+and nothing else, which is fine for a file the user picked off their own disk and useless on a
+public endpoint. Added: magic-byte signatures; OOXML container structure (a marker entry, so a
+plain ZIP renamed `.docx` is refused); declared-versus-actual size; archive expansion ratio and
+entry count, read from ZIP entry headers so a bomb is refused **without inflating it**; and
+filename sanitization.
+
+**Verified against the running application** by uploading two genuine samples plus a spoofed
+`.pdf` (an MZ executable header) in a single request:
+
+| Check | Result |
+|---|---|
+| `POST /upload` | 302 to dashboard |
+| Job persisted | `Status=Queued`, 2 items - committed before anything could schedule it |
+| Spoofed `.pdf` | **rejected**; the two genuine files still went through (BR-006) |
+| Bytes on disk | tenant-prefixed keys under a root outside the webroot |
+| Stored sizes | 3173 and 37040 bytes, matching the database rows |
+
+**The database is the queue, deliberately.** The lease columns already on `ConversionJobItem` do
+what a broker's visibility timeout would. This avoids the dual-write problem outright: the job
+existing and the job being claimable are the *same commit*, so there is no window where work is
+accepted but unscheduled. A broker can be introduced later without changing that ordering.
+
+**20 validator tests**, each pinning a specific attack: executable renamed to `.pdf`, plain ZIP
+renamed to `.docx`, password-protected OOXML (its own reason, not "corrupted"), a 60 MB
+decompression bomb, entry-count flooding, a lying declared size, and path traversal in filenames.
+
+**192 passed, 0 failed** (121 unit + 26 web + 45 integration). Build clean.
+
+---
+
 ## 2. Not started
 
 Phases 1–4 in full: web host, identity/workspaces, upload, persisted jobs and durable queue, results
@@ -430,14 +471,12 @@ Verified against source and executed runs, these documented claims do **not** ho
 
 ## 5. Next concrete task
 
-Private upload: content-based validation (magic bytes, declared-vs-actual size, archive expansion
-limits, safe filenames - SR-SEC-1), source bytes written to storage under a server-generated key,
-and the job persisted **before** anything is scheduled (SR-JOB-1). Then the worker claims an item
-under a lease, runs the real engine, and publishes artifacts only once they are complete
-(SR-JOB-3).
+The worker: claim a `Queued` item under a lease, run the **real** engine against the stored bytes,
+write artifacts, and publish them only once complete (SR-JOB-3). Then the results view and an
+authorized download that resolves an artifact by id **and** workspace - the cross-tenant test
+already proves why id alone is not enough.
 
-The storage interface with a local-filesystem dev adapter comes first, since upload has nowhere to
-put bytes without it.
+Nothing converts yet. Upload accepts and stores; that is all.
 
 **Decision-independent work that can proceed in parallel** (in priority order):
 

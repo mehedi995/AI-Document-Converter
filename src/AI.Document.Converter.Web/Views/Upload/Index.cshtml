@@ -1,0 +1,20 @@
+@model AI.Document.Converter.Web.Controllers.UploadPageModel
+@{ ViewData["Title"] = "New conversion"; }
+<h1>New conversion</h1>
+<div asp-validation-summary="All"></div>
+<form method="post" enctype="multipart/form-data">
+    <p><input type="file" name="files" multiple
+              accept=".pdf,.docx,.xlsx,.pptx,.txt" /></p>
+    <p>
+        <label for="preset">Preset</label>
+        <select id="preset" name="preset">
+            <option value="default">Default — faithful extraction</option>
+        </select>
+    </p>
+    <p>Up to @Model.MaxFiles files, @Model.MaxFileSizeMb MB each. PDF, DOCX, XLSX, PPTX, TXT.</p>
+    <p><strong>Retention:</strong> source files are kept for 24 hours and converted output for 7
+       days, then deleted automatically. Files are processed on our servers; nothing is sent to a
+       third-party AI service.</p>
+    <button type="submit">Upload and convert</button>
+</form>
+<p><a asp-controller="Dashboard" asp-action="Index">Back to dashboard</a></p>

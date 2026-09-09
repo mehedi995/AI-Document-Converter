@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\AI.Document.Converter.Persistence\AI.Document.Converter.Persistence.csproj" />
+    <ProjectReference Include="..\AI.Document.Converter.Domain\AI.Document.Converter.Domain.csproj" />
   </ItemGroup>
 
 </Project>
