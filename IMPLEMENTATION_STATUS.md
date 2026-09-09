@@ -2,8 +2,8 @@
 
 **Last updated:** 2026-09-08
 **Baseline commit:** `d27e8a9` (desktop v1.0.0)
-**Current phase:** Phase 1's customer journey works end to end with retention, cancel and retry.
-**Batch progress and ZIP export are not built.**
+**Current phase:** Phase 1 substantially complete - register, upload, convert, view, download,
+export, cancel, retry, retention. **Batch progress and chunk export are not built.**
 
 > Scope note: the cloud SaaS edition is authorized and supersedes the desktop-only /
 > no-server / no-auth / no-database constraints **for the cloud edition only**. The desktop
@@ -623,6 +623,40 @@ measure of what exists.
 
 ---
 
+### Phase 1 - ZIP export with a manifest (increment 13)
+
+| Added | Purpose |
+|---|---|
+| `ExportPackageBuilder` | Builds `markdown/`, `metadata/`, `manifest.json`, `README.txt` |
+| `GET /results/{id}/export` | Streams the package |
+| `ExportPackageTests` | 9 tests, manifest-focused |
+
+**The manifest is the point, not the zipping.** SaaS §6 requires omissions and extraction gaps to
+be visible in the export manifest - not only on a web page the customer may never revisit. A
+package containing only Markdown would let an incomplete extraction travel onward looking complete.
+
+Verified on a real download: the manifest carries per-file status, source SHA-256, the immutable
+run id, and the full warning with its page number and details. It also states in prose that a
+warned file is **"NOT a complete extraction"**, and - always, even on a clean run - that the
+absence of warnings **"is not a guarantee that the parser recovered every fact from the source."**
+
+**Two bugs found by running it:**
+
+1. **The package was truncated to 48 bytes.** `ZipArchive` finalises its central directory with
+   *synchronous* writes, and ASP.NET Core rejects synchronous IO on the response body. My comment
+   claiming it "streamed as it is built" was simply wrong. It now builds into a temp file opened
+   with `DeleteOnClose` and streams that back - bounded memory, and the file disappears when the
+   response ends, including on a client disconnect. Allowing synchronous IO would have worked too,
+   but lets a slow client hold a thread-pool thread for a whole download.
+2. **Colliding names were opaque.** `sample.pdf` and `sample.docx` both reduce to `sample`, giving
+   `sample.md` and `sample (2).md` - collision-safe but useless to someone who has just unzipped
+   it. Now disambiguated by source extension: `sample.md` and `sample-pdf.md`. The counter remains
+   for genuinely identical filenames.
+
+**229 passed, 0 failed** (121 unit + 56 web + 45 integration). Build clean.
+
+---
+
 ## 2. Not started
 
 Phases 1–4 in full: web host, identity/workspaces, upload, persisted jobs and durable queue, results
@@ -660,12 +694,13 @@ Verified against source and executed runs, these documented claims do **not** ho
 
 ## 5. Next concrete task
 
-ZIP export (FR-027/028/046): Markdown, YAML metadata and a manifest in one package, with
-collision-safe names and an immutable run identifier. The manifest is also where omissions and
-warnings have to appear, so it is the last piece of "the customer can see what was not recovered".
+Chunk generation in the SaaS pipeline. `ChunkGenerator` is already correct and tested (structure-
+aware, never splits a table, warns on oversized ones), but the worker does not call it and no
+chunks reach the export - so the `chunks/` folder the desktop produces has no SaaS equivalent yet.
+This is the last piece of the documented output contract.
 
-Then batch progress on the dashboard, and the storage/row reconciliation pass that is still open
-from increment 9.
+Then batch progress on the dashboard, and the storage/row reconciliation pass still open from
+increment 9.
 
 **Decision-independent work that can proceed in parallel** (in priority order):
 

@@ -73,6 +73,12 @@
 @* Only the actions the server would actually honour are shown. A button
    that leads to a refusal is worse than no button. *@
 <div class="actions">
+    @if (!Model.IsDeleted)
+    {
+        <a class="button-link" asp-action="Export" asp-route-jobId="@Model.JobId">
+            Download everything (.zip)
+        </a>
+    }
     @if (Model.CanCancel)
     {
         <form method="post" asp-action="Cancel" asp-route-jobId="@Model.JobId">

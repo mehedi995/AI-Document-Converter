@@ -1,5 +1,6 @@
 using AI.Document.Converter.Persistence;
 using AI.Document.Converter.Persistence.Entities;
+using AI.Document.Converter.Persistence.Export;
 using AI.Document.Converter.Persistence.Jobs;
 using AI.Document.Converter.Persistence.Retention;
 using AI.Document.Converter.Persistence.Storage;
@@ -85,6 +86,7 @@ builder.Services.AddScoped<ConversionIntakeService>();
 builder.Services.Configure<RetentionPolicy>(builder.Configuration.GetSection("Retention"));
 builder.Services.AddScoped<RetentionService>();
 builder.Services.AddScoped<JobLifecycleService>();
+builder.Services.AddScoped<ExportPackageBuilder>();
 builder.Services.AddSingleton<UploadValidator>();
 
 // Local adapter for development. Production swaps in a private object store;

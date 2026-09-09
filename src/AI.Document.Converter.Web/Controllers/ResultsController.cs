@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using AI.Document.Converter.Persistence;
 using AI.Document.Converter.Persistence.Entities;
+using AI.Document.Converter.Persistence.Export;
 using AI.Document.Converter.Persistence.Jobs;
 using AI.Document.Converter.Persistence.Retention;
 using AI.Document.Converter.Persistence.Storage;
@@ -25,6 +26,7 @@ public sealed class ResultsController : Controller
     private readonly WorkspaceAccessService _workspaceAccess;
     private readonly RetentionService _retention;
     private readonly JobLifecycleService _lifecycle;
+    private readonly ExportPackageBuilder _exportBuilder;
     private readonly ILogger<ResultsController> _logger;
 
     public ResultsController(
@@ -33,6 +35,7 @@ public sealed class ResultsController : Controller
         WorkspaceAccessService workspaceAccess,
         RetentionService retention,
         JobLifecycleService lifecycle,
+        ExportPackageBuilder exportBuilder,
         ILogger<ResultsController> logger)
     {
         _db = db;
@@ -40,6 +43,7 @@ public sealed class ResultsController : Controller
         _workspaceAccess = workspaceAccess;
         _retention = retention;
         _lifecycle = lifecycle;
+        _exportBuilder = exportBuilder;
         _logger = logger;
     }
 
@@ -170,6 +174,70 @@ public sealed class ResultsController : Controller
         // browser sniff and render user-supplied content inline is how a stored
         // file becomes stored XSS.
         return File(content, "text/markdown; charset=utf-8", artifact.FileName);
+    }
+
+    // FR-027/028/046.
+    //
+    // Built into a temp file and then streamed back, NOT written straight to
+    // the response. ZipArchive finalises its central directory with synchronous
+    // writes, and ASP.NET Core rejects synchronous IO on the response body -
+    // writing directly produced a truncated 48-byte archive. Allowing
+    // synchronous IO instead would work, but it lets a slow client hold a
+    // thread-pool thread for the length of a download.
+    //
+    // A temp file rather than a MemoryStream so a large batch does not have to
+    // fit in memory. DeleteOnClose ties its lifetime to the response: the file
+    // is removed as soon as the stream closes, including when a client
+    // disconnects mid-download (SEC-004).
+    [HttpGet("{jobId:guid}/export")]
+    public async Task<IActionResult> Export(Guid jobId, CancellationToken cancellationToken)
+    {
+        var workspace = await _workspaceAccess.GetDefaultWorkspaceAsync(GetUserId(), cancellationToken);
+        if (workspace is null)
+        {
+            return NotFound();
+        }
+
+        var temporaryPath = Path.Combine(Path.GetTempPath(), $"adc-export-{Guid.NewGuid():N}.zip");
+
+        try
+        {
+            bool written;
+            await using (var buffer = new FileStream(
+                temporaryPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                written = await _exportBuilder.TryWritePackageAsync(
+                    workspace.Id, jobId, buffer, cancellationToken);
+            }
+
+            if (!written)
+            {
+                System.IO.File.Delete(temporaryPath);
+                return NotFound();
+            }
+
+            var download = new FileStream(
+                temporaryPath, FileMode.Open, FileAccess.Read, FileShare.None,
+                bufferSize: 64 * 1024,
+                options: FileOptions.Asynchronous | FileOptions.DeleteOnClose);
+
+            _logger.LogInformation("Export package downloaded for job {JobId}", jobId);
+
+            // The name carries the run id, so exports of different jobs never
+            // collide in a downloads folder.
+            return File(download, "application/zip", $"conversion-{jobId:N}.zip");
+        }
+        catch
+        {
+            // The success path hands ownership to DeleteOnClose; this only
+            // covers a failure before that point.
+            if (System.IO.File.Exists(temporaryPath))
+            {
+                System.IO.File.Delete(temporaryPath);
+            }
+
+            throw;
+        }
     }
 
     // FR-037. POST because it changes state, so CSRF validation applies.

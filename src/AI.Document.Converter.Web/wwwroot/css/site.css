@@ -6,3 +6,4 @@ body { font-family: system-ui, sans-serif; margin: 2rem; }
 .markdown-source { background: #f8fafc; padding: 1rem; overflow-x: auto; white-space: pre-wrap; }
 .notice { background: #eff6ff; border-left: 4px solid #1d4ed8; padding: .75rem 1rem; }
 .actions { display: flex; gap: .75rem; flex-wrap: wrap; margin-top: 1.5rem; }
+.button-link { display: inline-block; padding: .4rem .8rem; border: 1px solid #1d4ed8; border-radius: 4px; text-decoration: none; }
