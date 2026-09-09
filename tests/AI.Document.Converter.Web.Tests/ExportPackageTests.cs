@@ -266,8 +266,11 @@ public sealed class ExportPackageTests : IDisposable
         using var archive = await BuildAsync(db, workspaceId, jobId);
         var names = archive.Entries.Select(e => e.FullName).ToList();
 
-        Assert.Contains("markdown/report.md", names);
+        // BOTH are suffixed, not just the second. Giving the
+        // alphabetically-first file the bare name reads as arbitrary.
+        Assert.Contains("markdown/report-docx.md", names);
         Assert.Contains("markdown/report-pdf.md", names);
+        Assert.DoesNotContain("markdown/report.md", names);
 
         // Whatever the names, the manifest must resolve each output to its
         // source unambiguously.

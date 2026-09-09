@@ -70,13 +70,28 @@ public sealed class ExportPackageBuilder
         // leaveOpen so the caller controls the response stream's lifetime.
         using var archive = new ZipArchive(destination, ZipArchiveMode.Create, leaveOpen: true);
 
+        var orderedItems = job.Items.OrderBy(i => i.SourceDocument!.OriginalFileName).ToList();
+
+        // Stems that more than one source file shares. Computed up front so
+        // EVERY member of a colliding group gets the extension suffix, not just
+        // the ones after the first. Deciding per-file as we go gave the
+        // alphabetically-first document the bare name and suffixed the rest,
+        // which reads as arbitrary: "sample.md" next to "sample-pdf.md" invites
+        // the question of which format "sample.md" is.
+        var ambiguousStems = orderedItems
+            .Select(i => Path.GetFileNameWithoutExtension(i.SourceDocument!.OriginalFileName))
+            .GroupBy(stem => stem, StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
         var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var fileEntries = new List<ManifestFile>();
 
-        foreach (var item in job.Items.OrderBy(i => i.SourceDocument!.OriginalFileName))
+        foreach (var item in orderedItems)
         {
             var document = item.SourceDocument!;
-            var baseName = MakeCollisionSafeName(document.OriginalFileName, usedNames);
+            var baseName = MakeCollisionSafeName(document.OriginalFileName, ambiguousStems, usedNames);
 
             var artifactEntries = new List<ManifestArtifact>();
 
@@ -257,24 +272,27 @@ public sealed class ExportPackageBuilder
     // both are collision-safe, but only one tells the person who unzipped it
     // which file they are looking at without opening it. The counter remains
     // for the genuine case of two identically named sources.
-    private static string MakeCollisionSafeName(string originalFileName, HashSet<string> used)
+    private static string MakeCollisionSafeName(
+        string originalFileName, HashSet<string> ambiguousStems, HashSet<string> used)
     {
         var stem = Path.GetFileNameWithoutExtension(originalFileName);
         var candidate = string.IsNullOrWhiteSpace(stem) ? "unnamed" : stem;
-
-        if (used.Add(candidate))
-        {
-            return candidate;
-        }
-
         var extension = Path.GetExtension(originalFileName).TrimStart('.').ToLowerInvariant();
-        if (!string.IsNullOrEmpty(extension))
+
+        // Suffix every member of a colliding group, so the naming is uniform
+        // and self-explanatory rather than depending on sort order.
+        if (ambiguousStems.Contains(candidate) && !string.IsNullOrEmpty(extension))
         {
             var byExtension = $"{candidate}-{extension}";
             if (used.Add(byExtension))
             {
                 return byExtension;
             }
+        }
+
+        if (used.Add(candidate))
+        {
+            return candidate;
         }
 
         for (var suffix = 2; ; suffix++)

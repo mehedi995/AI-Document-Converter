@@ -46,6 +46,69 @@ public sealed class ConversionIntakeService
         _logger = logger;
     }
 
+    // Reconvert: a NEW run over source documents that are already stored.
+    //
+    // No re-upload, no re-validation and no second copy of the bytes - the
+    // documents were validated when they were first accepted, and their content
+    // has not changed. The new job references the SAME SourceDocument rows, so
+    // storage does not grow and both runs remain traceable to one input.
+    //
+    // FR-044 is superseded for the cloud edition: this never overwrites the
+    // earlier run. Cloud runs are immutable, so history stays intact and the two
+    // results can be compared.
+    public async Task<Guid> CreateJobFromExistingDocumentsAsync(
+        Guid workspaceId,
+        Guid userId,
+        string presetName,
+        IReadOnlyList<SourceDocument> documents,
+        CancellationToken cancellationToken)
+    {
+        var nowUtc = DateTime.UtcNow;
+
+        var job = new ConversionJob
+        {
+            Id = Guid.NewGuid(),
+            WorkspaceId = workspaceId,
+            CreatedByUserId = userId,
+            Status = JobStatus.Queued,
+            PresetName = presetName,
+            CreatedAtUtc = nowUtc
+        };
+        _db.ConversionJobs.Add(job);
+
+        foreach (var document in documents)
+        {
+            // Defence in depth. These come from a workspace-scoped query, but a
+            // job must never reference a document from another tenant, so the
+            // invariant is asserted where it would be violated rather than
+            // assumed from the caller (SR-SEC-2).
+            if (document.WorkspaceId != workspaceId)
+            {
+                throw new InvalidOperationException(
+                    "Refusing to build a job from a document belonging to another workspace.");
+            }
+
+            _db.ConversionJobItems.Add(new ConversionJobItem
+            {
+                Id = Guid.NewGuid(),
+                JobId = job.Id,
+                WorkspaceId = workspaceId,
+                SourceDocumentId = document.Id,
+                Status = JobStatus.Queued
+            });
+        }
+
+        // One commit, exactly as for a fresh upload: the job exists and is
+        // claimable at the same instant (SR-JOB-1).
+        await _db.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation(
+            "Created reconvert job {JobId} over {DocumentCount} existing document(s)",
+            job.Id, documents.Count);
+
+        return job.Id;
+    }
+
     public async Task<IntakeResult> AcceptAsync(
         Guid workspaceId,
         Guid userId,

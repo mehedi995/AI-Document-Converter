@@ -2,8 +2,8 @@
 
 **Last updated:** 2026-09-08
 **Baseline commit:** `d27e8a9` (desktop v1.0.0)
-**Current phase:** **Phase 1 complete.** The full customer journey works end to end with real
-progress reporting. Phase 2 items (history search, reconvert) and the orphan sweep remain.
+**Current phase:** **Phase 2 substantially complete.** All five formats verified end to end;
+history, search, filter and reconvert work. The orphan sweep remains open.
 
 > Scope note: the cloud SaaS edition is authorized and supersedes the desktop-only /
 > no-server / no-auth / no-database constraints **for the cloud edition only**. The desktop
@@ -733,6 +733,59 @@ scripting disabled sees identical information, just less often.
 
 ---
 
+### Phase 2 - five formats verified, history, search, reconvert (increment 16)
+
+#### All five baseline formats, end to end (acceptance criterion §13.1)
+
+Previously only PDF and DOCX had been proven through the SaaS pipeline. All five uploaded in one
+request, converted, and exported:
+
+| Format | Outcome | Warnings |
+|---|---|---|
+| `sample.docx` | Completed | none |
+| `sample.pdf` | **CompletedWithWarnings** | `noExtractableText`/error |
+| `sample.pptx` | Completed | none |
+| `sample.txt` | Completed | none |
+| `sample.xlsx` | Completed | `tableExceedsChunkSize`/warning, `formulaValueUnavailable`/warning |
+
+**C-01's fix confirmed through the SaaS path**, which had only ever been proven at the Python level:
+the large sheet produced **258 markdown table rows ending at row 250**, with no sampling notice. The
+audit's original finding was 5 rows out of 1000 reported as success.
+
+Three warning types fired in one run - **C-01, C-04 and C-08 all demonstrated in the real
+pipeline**. `tableExceedsChunkSize` is Warning severity, so XLSX correctly stayed `Completed`: the
+table is intact, the chunk is merely large.
+
+Export contained 5 markdown files, 6 chunk files, and a manifest whose summary read
+`completed: 4, completedWithWarnings: 1`.
+
+#### History, search and filter
+
+Filename search via parameterised `EF.Functions.Like` - wildcards are added by us, never taken from
+the user, so a term containing `%` cannot widen the search. The workspace filter is applied first
+and is not optional; search only narrows within it. Empty states distinguish "you have nothing"
+from "your search matched nothing", because those need different next actions.
+
+#### Reconvert (FR-044 superseded)
+
+A reconvert creates a **new run**; it never overwrites the earlier one. Cloud runs are immutable, so
+history stays intact and two results can be compared.
+
+Verified live: the new job queued while the original stayed at `CompletedWithWarnings`, and **5
+source documents were shared across 10 job items with only 5 stored objects** - no byte
+duplication. Refused for deleted jobs, and for sources past their retention window with an
+explanation rather than a silent failure.
+
+#### One naming fix
+
+With five files all stemmed `sample`, only the alphabetically-first got the bare name and the rest
+were suffixed - which reads as arbitrary. Collisions are now detected up front so **every** member
+of a colliding group is suffixed uniformly.
+
+**241 passed, 0 failed** (121 unit + 75 web + 45 integration). Build clean.
+
+---
+
 ## 2. Not started
 
 Phases 1–4 in full: web host, identity/workspaces, upload, persisted jobs and durable queue, results
@@ -770,11 +823,12 @@ Verified against source and executed runs, these documented claims do **not** ho
 
 ## 5. Next concrete task
 
-Phase 2's remaining items: conversion history with search and filter, and reconvert (a new run
-from the same source, not an overwrite - cloud runs are immutable, FR-044 superseded).
+The storage/row reconciliation pass, open since increment 9 and now the last unmet item in Phase
+2's "cleanup". The retention sweep walks rows, so an object with no row pointing at it is invisible
+to it and is never reclaimed.
 
-Also still open: the storage/row reconciliation pass from increment 9. The retention sweep walks
-rows, so an object with no row pointing at it is invisible to it.
+After that, Phase 3 (commercial layer) begins - but its first blocker is a business decision, not
+code: billing provider eligibility for a Bangladesh seller is still unverified.
 
 **Decision-independent work that can proceed in parallel** (in priority order):
 

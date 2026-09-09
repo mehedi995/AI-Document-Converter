@@ -1,0 +1,111 @@
+@model AI.Document.Converter.Web.Controllers.HistoryViewModel
+@{ ViewData["Title"] = "History"; }
+
+<h1>Conversion history</h1>
+
+@if (TempData["Message"] is string message)
+{
+    <p class="notice">@message</p>
+}
+
+<form method="get" class="filters">
+    <label for="q">Search filenames</label>
+    <input id="q" name="q" value="@Model.SearchTerm" placeholder="e.g. invoice" />
+
+    <label for="status">Status</label>
+    <select id="status" name="status">
+        <option value="">Any status</option>
+        @foreach (var option in new[] { "Queued", "Extracting", "Completed", "CompletedWithWarnings", "Failed", "Cancelled", "Expired" })
+        {
+            <option value="@option" selected="@(Model.StatusFilter == option)">@option</option>
+        }
+    </select>
+
+    <button type="submit">Search</button>
+    @if (!string.IsNullOrWhiteSpace(Model.SearchTerm) || !string.IsNullOrWhiteSpace(Model.StatusFilter))
+    {
+        <a asp-action="Index">Clear</a>
+    }
+</form>
+
+@if (Model.Jobs.Count == 0)
+{
+    <div class="empty-state">
+        @* Distinguishes "you have nothing" from "your search matched nothing" -
+           they need different next actions. *@
+        @if (!string.IsNullOrWhiteSpace(Model.SearchTerm) || !string.IsNullOrWhiteSpace(Model.StatusFilter))
+        {
+            <p><strong>No conversions match that search.</strong></p>
+            <p><a asp-action="Index">Clear the filters</a> to see everything.</p>
+        }
+        else
+        {
+            <p><strong>No conversions yet.</strong></p>
+            <p><a asp-controller="Upload" asp-action="Index">Convert your first document</a>.</p>
+        }
+    </div>
+}
+else
+{
+    <p class="muted">@Model.TotalCount conversion(s)</p>
+    <table>
+        <thead>
+            <tr><th>Created (UTC)</th><th>Files</th><th>Status</th><th>Preset</th><th></th></tr>
+        </thead>
+        <tbody>
+        @foreach (var job in Model.Jobs)
+        {
+            <tr>
+                <td>@job.CreatedAtUtc.ToString("yyyy-MM-dd HH:mm")</td>
+                <td>
+                    @job.FileCount
+                    <span class="muted">@string.Join(", ", job.SampleFileNames)@(job.FileCount > job.SampleFileNames.Count ? "…" : "")</span>
+                </td>
+                <td>
+                    @if (job.IsDeleted)
+                    {
+                        <span class="badge badge-muted">Files deleted</span>
+                    }
+                    else
+                    {
+                        <span class="badge @(job.FailedCount > 0 ? "badge-fail" : job.WarningCount > 0 ? "badge-warn" : "badge-ok")">@job.Status</span>
+                    }
+                </td>
+                <td>@job.PresetName</td>
+                <td class="row-actions">
+                    <a asp-controller="Results" asp-action="Index" asp-route-jobId="@job.Id">View</a>
+                    @if (job.HasDownloadableContent)
+                    {
+                        <a asp-controller="Results" asp-action="Export" asp-route-jobId="@job.Id">Download</a>
+                    }
+                    @if (!job.IsDeleted)
+                    {
+                        @* Reconvert creates a NEW run - cloud runs are
+                           immutable, so this never overwrites the old result. *@
+                        <form method="post" asp-action="Reconvert" asp-route-jobId="@job.Id">
+                            <button type="submit" class="link-button">Convert again</button>
+                        </form>
+                    }
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table>
+
+    @if (Model.TotalPages > 1)
+    {
+        <nav class="pager">
+            @if (Model.Page > 1)
+            {
+                <a asp-action="Index" asp-route-q="@Model.SearchTerm" asp-route-status="@Model.StatusFilter" asp-route-page="@(Model.Page - 1)">Previous</a>
+            }
+            <span>Page @Model.Page of @Model.TotalPages</span>
+            @if (Model.Page < Model.TotalPages)
+            {
+                <a asp-action="Index" asp-route-q="@Model.SearchTerm" asp-route-status="@Model.StatusFilter" asp-route-page="@(Model.Page + 1)">Next</a>
+            }
+        </nav>
+    }
+}
+
+<p><a asp-controller="Dashboard" asp-action="Index">Back to dashboard</a></p>

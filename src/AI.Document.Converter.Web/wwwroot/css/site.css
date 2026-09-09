@@ -21,3 +21,7 @@ th, td { text-align: left; padding: .5rem .75rem; border-bottom: 1px solid #e5e7
 .badge-progress { background: #dbeafe; color: #1e40af; }
 .button-link.primary { background: #1d4ed8; color: #fff; }
 button.secondary { background: transparent; border: 1px solid #d1d5db; padding: .35rem .7rem; border-radius: 4px; }
+.filters { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; margin: 1rem 0; }
+.row-actions { display: flex; gap: .75rem; align-items: center; }
+.link-button { background: none; border: none; color: #1d4ed8; cursor: pointer; padding: 0; text-decoration: underline; font: inherit; }
+.pager { display: flex; gap: 1rem; align-items: center; margin-top: 1rem; }

@@ -16,7 +16,10 @@
     <p class="notice">@message</p>
 }
 
-<p><a class="button-link primary" asp-controller="Upload" asp-action="Index">New conversion</a></p>
+<p class="row-actions">
+    <a class="button-link primary" asp-controller="Upload" asp-action="Index">New conversion</a>
+    <a asp-controller="History" asp-action="Index">View all history</a>
+</p>
 
 <h2>Recent conversions</h2>
 
