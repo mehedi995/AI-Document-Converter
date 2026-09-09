@@ -1,0 +1,52 @@
+@model AI.Document.Converter.Web.Models.TwoFactorStatusViewModel
+@{ ViewData["Title"] = "Two-factor authentication"; }
+<h1>Two-factor authentication</h1>
+
+@if (TempData["TwoFactorError"] is string error)
+{
+    <p role="alert"><strong>@error</strong></p>
+}
+
+@if (Model.IsEnabled)
+{
+    <p><strong>Two-factor authentication is on</strong> for this account.</p>
+
+    @if (Model.IsOperator && !Model.SessionUsedTwoFactor)
+    {
+        @* The distinction that otherwise looks like a bug: the account is
+           protected, but THIS cookie was minted before the second factor, so
+           the operator policy still refuses it. *@
+        <p role="status">
+            This sign-in did not use your authenticator, so the operator console is still
+            unavailable in this session. <strong>Sign out and sign in again</strong> to use it.
+        </p>
+    }
+
+    @if (!Model.IsOperator)
+    {
+        <form method="post" asp-action="Disable">
+            <button type="submit" class="secondary">Turn off two-factor authentication</button>
+        </form>
+    }
+    else
+    {
+        <p class="muted">
+            This account holds the Operator role, so two-factor authentication cannot be
+            switched off. Have the role removed first.
+        </p>
+    }
+}
+else
+{
+    <p>Two-factor authentication is off.</p>
+    @if (Model.IsOperator)
+    {
+        <p role="alert">
+            <strong>This account holds the Operator role but has no second factor.</strong>
+            The operator console will refuse this account until one is set up.
+        </p>
+    }
+    <p><a asp-action="Enable">Set up an authenticator app</a></p>
+}
+
+<p><a asp-controller="Dashboard" asp-action="Index">Back to dashboard</a></p>

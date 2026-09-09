@@ -1,0 +1,148 @@
+@model AI.Document.Converter.Web.Controllers.OperatorConsoleViewModel
+@{ ViewData["Title"] = "Operator console"; }
+
+<h1>Operator console</h1>
+
+@* Stated on the page itself, not only in the code. An operator should know
+   what this view does and does not show, so they do not conclude a document is
+   missing when it is simply not displayed here. *@
+<p class="muted">
+    This view shows operational state across all workspaces. It deliberately shows no filenames,
+    no document content and no warning messages. Inspecting one job's files requires a stated
+    reason and is recorded in the <a asp-action="Audit">audit trail</a>.
+</p>
+
+<section>
+    <h2>Queue</h2>
+    <table>
+        <tbody>
+            <tr><th scope="row">Queued</th><td>@Model.Queue.Queued</td></tr>
+            <tr><th scope="row">Running</th><td>@Model.Queue.Running</td></tr>
+            <tr><th scope="row">Failed items</th><td>@Model.Queue.Failed</td></tr>
+            <tr><th scope="row">Retryable</th><td>@Model.Queue.Retryable</td></tr>
+            <tr>
+                <th scope="row">Oldest queued</th>
+                <td>
+                    @if (Model.Queue.OldestQueuedAge is { } age)
+                    {
+                        @($"{age.TotalMinutes:N0} min")
+                    }
+                    else
+                    {
+                        <text>&mdash;</text>
+                    }
+                </td>
+            </tr>
+            @* A rising count here is the earliest visible sign that workers are
+               dying mid-item. The work is not lost - the lease expiring is what
+               makes it claimable again - but nobody would notice otherwise. *@
+            <tr><th scope="row">Expired leases</th><td>@Model.Queue.ExpiredLeases</td></tr>
+            <tr><th scope="row">At attempt limit</th><td>@Model.Queue.AtAttemptLimit</td></tr>
+        </tbody>
+    </table>
+</section>
+
+<section>
+    <h2>Retention</h2>
+    <p class="muted">@Model.Retention.PolicyDescription</p>
+    <table>
+        <tbody>
+            <tr><th scope="row">Source files awaiting deletion</th><td>@Model.Retention.SourcesAwaitingDeletion</td></tr>
+            @* Overdue is the number that matters: bytes past their deletion
+               time are a broken promise to the customer, not a backlog. *@
+            <tr><th scope="row">Source files <strong>overdue</strong></th><td>@Model.Retention.SourcesOverdue</td></tr>
+            <tr><th scope="row">Outputs awaiting deletion</th><td>@Model.Retention.ArtifactsAwaitingDeletion</td></tr>
+            <tr><th scope="row">Outputs <strong>overdue</strong></th><td>@Model.Retention.ArtifactsOverdue</td></tr>
+            <tr>
+                <th scope="row">Deleted jobs with live bytes</th>
+                <td>@Model.Retention.DeletedJobsWithLiveBytes</td>
+            </tr>
+        </tbody>
+    </table>
+    @if (Model.Retention.DeletedJobsWithLiveBytes > 0 || Model.Retention.SourcesOverdue > 0
+         || Model.Retention.ArtifactsOverdue > 0)
+    {
+        <p role="alert"><strong>Retention is behind.</strong> Check that the worker's sweep is running.</p>
+    }
+</section>
+
+<section>
+    <h2>Recent jobs</h2>
+    <form method="get">
+        <label for="status">Status</label>
+        <select id="status" name="status">
+            <option value="">Any</option>
+            @foreach (var value in Enum.GetValues<AI.Document.Converter.Persistence.Entities.JobStatus>())
+            {
+                <option value="@((int)value)" selected="@(Model.StatusFilter == value)">@value</option>
+            }
+        </select>
+        <button type="submit">Filter</button>
+    </form>
+    <table>
+        <thead>
+            <tr>
+                <th scope="col">Job</th>
+                <th scope="col">Workspace</th>
+                <th scope="col">Status</th>
+                <th scope="col">Items</th>
+                <th scope="col">Failed</th>
+                <th scope="col">Warnings</th>
+                <th scope="col">Attempts</th>
+                <th scope="col">Error categories</th>
+                <th scope="col">Created</th>
+                <th scope="col"></th>
+            </tr>
+        </thead>
+        <tbody>
+        @foreach (var job in Model.Jobs)
+        {
+            <tr>
+                <td><code>@job.JobId.ToString()[..8]</code></td>
+                <td><a asp-action="Index" asp-route-workspace="@job.WorkspaceId">@job.WorkspaceSlug</a></td>
+                <td>@job.Status@(job.IsDeleted ? " (deleted)" : "")</td>
+                <td>@job.ItemCount</td>
+                <td>@job.FailedItems</td>
+                <td>@job.WarningItems</td>
+                <td>@job.MaxAttempts</td>
+                <td>@job.ErrorCategories</td>
+                <td>@job.CreatedAtUtc.ToString("u")</td>
+                <td><a asp-action="Inspect" asp-route-jobId="@job.JobId">Inspect</a></td>
+            </tr>
+        }
+        </tbody>
+    </table>
+    @if (Model.Jobs.Count == 0)
+    {
+        <p class="muted">No jobs match.</p>
+    }
+</section>
+
+<section>
+    <h2>Usage this period</h2>
+    <table>
+        <thead>
+            <tr>
+                <th scope="col">Workspace</th>
+                <th scope="col">Plan</th>
+                <th scope="col">Used</th>
+                <th scope="col">Held</th>
+                <th scope="col">Included</th>
+                <th scope="col">Period ends</th>
+            </tr>
+        </thead>
+        <tbody>
+        @foreach (var row in Model.Workspaces)
+        {
+            <tr>
+                <td>@row.Slug</td>
+                <td><code>@row.PlanCode</code></td>
+                <td>@row.SettledCredits.ToString("N0")</td>
+                <td>@row.ReservedCredits.ToString("N0")</td>
+                <td>@row.IncludedCredits.ToString("N0")</td>
+                <td>@row.PeriodEndsAtUtc.ToString("u")</td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</section>

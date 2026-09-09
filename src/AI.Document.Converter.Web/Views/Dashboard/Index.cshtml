@@ -42,6 +42,15 @@
     <a class="button-link primary" asp-controller="Upload" asp-action="Index">New conversion</a>
     <a asp-controller="History" asp-action="Index">View all history</a>
     <a asp-controller="Billing" asp-action="Index">Plan and usage</a>
+    <a asp-controller="Security" asp-action="TwoFactor">Two-factor authentication</a>
+@* Shown on the role alone. The link may therefore appear for an operator whose
+   session lacks a second factor - following it is refused, and the two-factor
+   page explains why. Hiding the link in that case would leave them with no
+   route to the explanation. *@
+@if (User.IsInRole(AI.Document.Converter.Web.Security.OperatorPolicy.RoleName))
+{
+    <a asp-controller="Operator" asp-action="Index">Operator console</a>
+}
 </p>
 
 <h2>Recent conversions</h2>

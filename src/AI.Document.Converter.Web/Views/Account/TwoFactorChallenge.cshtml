@@ -1,0 +1,16 @@
+@model AI.Document.Converter.Web.Models.TwoFactorChallengeViewModel
+@{ ViewData["Title"] = "Two-factor sign-in"; }
+<h1>Enter your authenticator code</h1>
+<p>Your password was accepted. Enter the current six-digit code from your authenticator app to finish signing in.</p>
+<form method="post">
+    <input type="hidden" name="returnUrl" value="@ViewData["ReturnUrl"]" />
+    <input type="hidden" asp-for="RememberMe" />
+    <div asp-validation-summary="All"></div>
+    @* autocomplete="one-time-code" lets password managers and phone keyboards
+       offer the code directly. inputmode keeps it a numeric keypad on mobile. *@
+    <p>
+        <label asp-for="Code"></label>
+        <input asp-for="Code" autocomplete="one-time-code" inputmode="numeric" autofocus />
+    </p>
+    <button type="submit">Sign in</button>
+</form>

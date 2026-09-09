@@ -1,0 +1,92 @@
+@model AI.Document.Converter.Web.Controllers.JobInspectionViewModel
+@{ ViewData["Title"] = "Inspect job"; }
+
+<h1>Inspect job <code>@Model.JobId.ToString()[..8]</code></h1>
+
+@if (Model.Inspection is null)
+{
+    @* The reason is collected BEFORE anything is shown, and the page says
+       plainly that it is recorded. Someone who does not want their name against
+       this request should stop here rather than discover the record later. *@
+    <p>
+        This shows the filenames and error messages for one job, across the tenant boundary.
+        <strong>Your account, the job, and the reason you give are recorded permanently</strong>
+        in the audit trail.
+    </p>
+
+    @if (Model.Refusal is not null)
+    {
+        <p role="alert"><strong>@Model.Refusal</strong></p>
+    }
+
+    <form method="post">
+        <p>
+            <label for="reason">Why does this job need inspecting?</label><br />
+            <textarea id="reason" name="reason" rows="3" cols="60"
+                      placeholder="e.g. ticket 4821 - customer reports every file failing"></textarea>
+        </p>
+        <button type="submit">Record reason and inspect</button>
+    </form>
+    <p><a asp-action="Index">Back to console</a></p>
+}
+else
+{
+    var inspection = Model.Inspection;
+    <p class="muted">
+        Workspace <strong>@inspection.WorkspaceSlug</strong> &middot; @inspection.Status
+        &middot; preset <code>@inspection.PresetName</code>
+        &middot; created @inspection.CreatedAtUtc.ToString("u")
+        @(inspection.IsDeleted ? " · deleted by the customer" : "")
+    </p>
+
+    @* Document CONTENT is not shown and is not reachable from here. Support
+       seeing why a conversion failed is a much smaller promise than support
+       being able to read the document, and only the first one is offered. *@
+    <p class="muted">
+        Filenames and error messages only. Document content is not available through this console.
+    </p>
+
+    @foreach (var item in inspection.Items)
+    {
+        <section>
+            <h2>@item.FileName</h2>
+            <p>
+                @item.Status &middot; @item.SizeBytes.ToString("N0") bytes
+                &middot; attempt @item.AttemptCount
+            </p>
+            @if (item.ErrorCategory is not null)
+            {
+                <p><strong>@item.ErrorCategory</strong> &mdash; @item.ErrorMessage</p>
+            }
+            @if (item.Warnings.Count > 0)
+            {
+                <table>
+                    <thead>
+                        <tr>
+                            <th scope="col">Code</th>
+                            <th scope="col">Severity</th>
+                            <th scope="col">Block</th>
+                            <th scope="col">Page</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    @foreach (var warning in item.Warnings)
+                    {
+                        <tr>
+                            <td>@warning.Code</td>
+                            <td>@warning.Severity</td>
+                            <td>@warning.BlockId</td>
+                            <td>@warning.PageNumber</td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+                @* Warning messages are omitted even here: they can quote the
+                   text that triggered them. *@
+                <p class="muted">Warning messages are not shown, because they can quote document text.</p>
+            }
+        </section>
+    }
+
+    <p><a asp-action="Index">Back to console</a></p>
+}

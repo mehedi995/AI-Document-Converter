@@ -1,0 +1,33 @@
+@model AI.Document.Converter.Web.Models.TwoFactorEnrolmentViewModel
+@{ ViewData["Title"] = "Set up an authenticator"; }
+<h1>Set up an authenticator app</h1>
+
+<ol>
+    <li>Install an authenticator app that supports TOTP (for example Google Authenticator, Microsoft Authenticator, Aegis or 1Password).</li>
+    <li>
+        Add an account using this key:
+        <p><kbd>@Model.SharedKey</kbd></p>
+        @* The otpauth URI is offered as text rather than rendered as a QR code.
+           Drawing one needs a JavaScript library from a CDN, and pulling a
+           third-party script into the page where a shared secret is displayed
+           is a poor trade for saving some typing. *@
+        <details>
+            <summary>Or use the setup URI</summary>
+            <p><code>@Model.AuthenticatorUri</code></p>
+        </details>
+    </li>
+    <li>Enter the six-digit code the app shows.</li>
+</ol>
+
+<form method="post">
+    <div asp-validation-summary="All"></div>
+    <p>
+        <label asp-for="Code"></label>
+        <input asp-for="Code" autocomplete="one-time-code" inputmode="numeric" autofocus />
+    </p>
+    <button type="submit">Verify and turn on</button>
+</form>
+
+@* Stated plainly: two-factor is only switched on after a code verifies, so a
+   failed setup leaves the account exactly as it was rather than locked out. *@
+<p class="muted">Two-factor authentication is switched on only once a code from your app has been accepted.</p>

@@ -45,6 +45,8 @@ public sealed class ConverterDbContext
 
     public DbSet<ProviderEventRecord> ProviderEvents => Set<ProviderEventRecord>();
 
+    public DbSet<OperatorAuditEntry> OperatorAuditEntries => Set<OperatorAuditEntry>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
@@ -244,6 +246,25 @@ public sealed class ConverterDbContext
             entity.HasIndex(r => r.JobId)
                 .IsUnique()
                 .HasFilter($"\"Status\" = {(int)ReservationStatus.Held}");
+        });
+
+        builder.Entity<OperatorAuditEntry>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.ActorEmail).HasMaxLength(256).IsRequired();
+            entity.Property(e => e.Action).HasMaxLength(50).IsRequired();
+            entity.Property(e => e.Reason).HasMaxLength(1000);
+            entity.Property(e => e.IpAddress).HasMaxLength(64);
+
+            // Read newest-first, and filtered by who or by which job.
+            entity.HasIndex(e => e.OccurredAtUtc);
+            entity.HasIndex(e => e.ActorUserId);
+            entity.HasIndex(e => e.TargetJobId);
+
+            // NO foreign key to ConversionJobs or Workspaces, deliberately. The
+            // record that an operator looked at a customer's job must survive
+            // that job being deleted - a cascade would erase the audit trail at
+            // exactly the moment it becomes evidence.
         });
 
         builder.Entity<ProviderEventRecord>(entity =>

@@ -42,3 +42,28 @@ public sealed class LoginViewModel
     [Display(Name = "Stay signed in")]
     public bool RememberMe { get; set; }
 }
+
+// The second step of a two-factor sign-in. Separate from LoginViewModel so the
+// password is not carried into a second round trip.
+public sealed class TwoFactorChallengeViewModel
+{
+    [Required]
+    [Display(Name = "Authenticator code")]
+    public string Code { get; set; } = string.Empty;
+
+    public bool RememberMe { get; set; }
+}
+
+public sealed record TwoFactorStatusViewModel(bool IsEnabled, bool IsOperator, bool SessionUsedTwoFactor);
+
+public sealed class TwoFactorEnrolmentViewModel
+{
+    // Shown for manual entry when scanning is not possible.
+    public string SharedKey { get; set; } = string.Empty;
+
+    public string AuthenticatorUri { get; set; } = string.Empty;
+
+    [Required]
+    [Display(Name = "Code from your authenticator app")]
+    public string Code { get; set; } = string.Empty;
+}

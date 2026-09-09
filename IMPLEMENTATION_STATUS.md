@@ -945,6 +945,107 @@ redirect to login when anonymous.
   under test is billing, not whether pdfplumber can read a table.
 
 
+### Increment: operator console, audited support access and MFA (SaaS 5.11, SR-SEC-7)
+
+**What works.** Operators can see what the service is doing across every workspace without seeing
+anybody's documents; the one path that reveals customer-identifying detail demands a written reason
+and records it first; and none of it is reachable without a second factor. Verified against a
+running instance, including every refusal.
+
+Full flow documented in `docs/saas/04-OPERATIONS.md`, which SR-SEC-7 requires as part of the control
+rather than as a description of it.
+
+**The console shows no documents.** SR-SEC-7 says operator status alone must not reveal them, so the
+status pages return no filenames, no document content and no warning or error messages. That is a
+real constraint, not a stylistic one: `quarterly-redundancies.xlsx` is itself the sensitive part, and
+an error message can quote the text that caused it. What is shown instead is error **categories** (a
+fixed vocabulary the system produces), counts, timings, attempt counts, lease state, retention
+posture and per-workspace credit usage - enough to run the service, which does not require reading
+anyone's files.
+
+Two tests assert the absence rather than the presence, checked over the whole row so that adding a
+field which happens to carry a filename fails them.
+
+**Queue and retention signals.** Expired leases are counted separately: a lease outliving its worker
+means the worker died holding it, which is not data loss (the item becomes claimable again) but is
+the earliest visible sign of crashing workers. Retention distinguishes *awaiting* deletion from
+**overdue** - bytes past their deletion time are a broken promise to the customer (SR-SEC-6), not a
+backlog - with a grace window of one sweep interval so the number does not cry wolf every few
+minutes. Both directions are tested: an expired lease on a *finished* item is not counted, and
+something one minute past its deadline is not overdue.
+
+**Audited inspection.** One job, addressed by id - no listing, no filename search, no way to sweep a
+workspace. A reason of at least ten characters is mandatory, and the audit entry is committed
+**before** the data is returned, so a failed write means the caller sees nothing. It is a POST, so a
+job's details cannot be opened by following a link somebody sent. It still returns no document
+content, and warning *messages* are withheld even here because they quote the document; codes and
+locations are enough to diagnose.
+
+The audit table has **no foreign key** to jobs or workspaces, deliberately: the record that someone
+looked at a customer's files must outlive those files, and a cascade would erase the evidence at the
+moment it becomes relevant. Pinned by a test that hard-deletes the job and asserts the entry
+survives.
+
+**MFA (SR-SEC-7).** TOTP via Identity's authenticator support - no SMS, because SIM swapping is
+routine and offering a channel we would then warn people not to trust is worse than not offering one.
+
+The policy requires the `Operator` role **and** proof that this session used a second factor
+(`amr=mfa`), not merely an account capable of one. Role alone would mean a stolen password reaches
+cross-tenant data, which is what the MFA requirement exists to prevent. The consequence - enabling
+two-factor does not unlock the console in the session you enabled it from - is correct rather than a
+defect, and both the two-factor page and the access-denied page say so.
+
+The role is granted from the command line, never through the web UI: a page that hands out
+administrative access is a privilege-escalation surface for something done a handful of times in a
+system's life. `list-operators` prints each operator's two-factor state, because an operator without
+one cannot use the console and that is otherwise invisible until they try. An operator cannot switch
+their own second factor off while holding the role.
+
+**Commands actually run.**
+
+```
+dotnet test AI.Document.Converter.sln -c Debug --filter "Category!=Performance"
+  -> 121 unit + 157 web + 45 integration = 323 passed, 0 failed
+dotnet build AI.Document.Converter.sln -c Release       -> Build succeeded, 0 warnings, 0 errors
+dotnet ef database update                               -> OperatorAuditTrail applied to adc_dev
+dotnet run --project src/AI.Document.Converter.Web -- grant-operator <email>
+  -> "Granted the Operator role" plus the no-second-factor warning
+```
+
+**Verified against a running instance.** A fresh account was registered, confirmed, granted the
+role, enrolled in TOTP (codes computed from the shared key), and driven through the whole gate:
+
+| Attempt | Result |
+|---|---|
+| `/operator`, ordinary user | **redirected to access denied** |
+| `/operator`, Operator role, password-only session | **redirected to access denied** |
+| `/operator`, two-factor enabled but signed in *before* enabling it | **redirected to access denied** |
+| Sign in again: password step | redirected to the two-factor challenge |
+| Sign in again: authenticator code | signed in |
+| `/operator` | **200** |
+| Console HTML searched for any sample filename | **0 matches** |
+| Inspect with an empty reason | refused, nothing recorded |
+| Inspect with a reason | filename, size, status and warning codes shown |
+| `/operator/audit` | the reason appears against the operator's email |
+
+**Limitations, stated plainly.**
+
+- **Role changes are not in the operator audit trail.** `grant-operator` writes to the application
+  log and `list-operators` shows the result, but there is no tamper-evident record of who granted
+  what. This should be closed before more than one person holds the role.
+- **No recovery codes.** An operator who loses their authenticator needs someone with database
+  access to clear `TwoFactorEnabled`. Acceptable while operators are few; not at scale.
+- **No pagination**: 50 jobs, 25 workspaces, 100 audit entries. Fine now, insufficient once the
+  trail is long enough to matter.
+- The `viewConsole` and `viewAuditTrail` audit actions are defined but **not written** - only
+  inspection is recorded. Logging every page view would bury the entries that matter, and the
+  console reveals no documents anyway.
+- The authorization policy is proven by the **live run above**, not by an automated test. The
+  project has no `WebApplicationFactory` harness, so nothing would catch a regression in
+  `Program.cs`'s policy wiring. That is the most valuable test still missing in this area.
+- MFA is implemented but **not enforced for ordinary customers**, only required for operators.
+
+
 ## 2. Not started
 
 **Superseded 2026-09-09.** This section previously read "No SaaS code exists yet beyond the
@@ -956,7 +1057,6 @@ orphan reconciliation, and now metering and the billing boundary are all impleme
 
 Still not started:
 
-- **Operator console** (SaaS §5.11). Nothing exists.
 - **Any real payment provider integration.** Blocked on approval; the boundary is ready (§1).
 - **Pilot benchmarks** against a realistic corpus. The sample corpus is small and synthetic.
 - **Cost testing of the credit ratios.** They are deterministic and documented, but no unit economics
@@ -1005,21 +1105,23 @@ are already implemented and tested.
 
 **Next, without needing that decision** (priority order):
 
-1. **Operator console** (SaaS §5.11) - the last unstarted piece of the product that does not depend on
-   a provider. Needs: job inspection across workspaces with an explicit audit trail, retention and
-   reconciliation status, and a way to see a workspace's usage without exposing document content.
-2. **Cost-test the credit ratios** against measured processing time and storage, so a price can
+1. **A `WebApplicationFactory` test harness.** The operator authorization policy, the two-factor
+   login step and the tenant-scoped controllers are all currently proven by manual runs against a
+   live instance. Nothing automated would catch a regression in `Program.cs` policy wiring - and
+   that wiring is now what stands between a stolen password and every tenant's data.
+2. **Audit role grants** and add recovery codes (see the operator-console limitations above).
+3. **Cost-test the credit ratios** against measured processing time and storage, so a price can
    eventually be set from evidence rather than from the illustrative figures in the blueprint.
-3. **Plumb extraction mode through .NET** - add `mode` to `ExtractRequestPayload` so XLSX summary mode
-   is reachable from the host and its Error-severity `sheetTruncated` warning is covered by an
+4. **Plumb extraction mode through .NET** - add `mode` to `ExtractRequestPayload` so XLSX summary
+   mode is reachable from the host and its Error-severity `sheetTruncated` warning is covered by an
    integration test. Today .NET can only obtain faithful extraction, which is the safe default but
    leaves that warning path proven at the Python level only.
-4. **D-05** extract once and fan out. `GenerateChunksAsync` still re-extracts from scratch, spawning a
-   second engine subprocess for a file `ConvertAsync` already parsed - 2x metered compute per chunked
-   conversion, which now costs the customer credits rather than just latency.
-5. **B-08** `createdDate` uses `os.path.getctime`, which on a server is upload time, not authorship
+5. **D-05** extract once and fan out. `GenerateChunksAsync` still re-extracts from scratch, spawning
+   a second engine subprocess for a file `ConvertAsync` already parsed - 2x metered compute per
+   chunked conversion, which now costs the customer credits rather than just latency.
+6. **B-08** `createdDate` uses `os.path.getctime`, which on a server is upload time, not authorship
    time. Prefer embedded document metadata, else omit.
-6. Real Linux verification of the engine once a container runtime exists (A-03 follow-up). The
+7. Real Linux verification of the engine once a container runtime exists (A-03 follow-up). The
    platform guard is proven only by simulation on Windows so far.
 
 ### Notes for whoever picks this up

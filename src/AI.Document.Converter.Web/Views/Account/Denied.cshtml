@@ -1,3 +1,13 @@
 @{ ViewData["Title"] = "Not available"; }
 <h1>Not available</h1>
 <p>You do not have access to that.</p>
+
+@* The operator console refuses for two different reasons - no role, or a
+   session that did not use a second factor - and from here they look identical.
+   Pointing at the two-factor page costs nothing to someone without the role
+   (it just shows their own status) and saves an operator from concluding the
+   grant did not work. *@
+<p class="muted">
+    If you hold the Operator role, the console also requires that this sign-in used your
+    authenticator. <a asp-controller="Security" asp-action="TwoFactor">Check your two-factor status</a>.
+</p>

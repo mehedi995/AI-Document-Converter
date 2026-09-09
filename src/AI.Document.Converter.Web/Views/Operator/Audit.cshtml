@@ -1,0 +1,43 @@
+@model IReadOnlyList<AI.Document.Converter.Persistence.Entities.OperatorAuditEntry>
+@{ ViewData["Title"] = "Operator audit trail"; }
+
+<h1>Operator audit trail</h1>
+<p class="muted">
+    Every operator action that crossed a tenant boundary. Append-only: entries are never edited
+    or removed, and they outlive the jobs they refer to.
+</p>
+
+<table>
+    <thead>
+        <tr>
+            <th scope="col">When</th>
+            <th scope="col">Operator</th>
+            <th scope="col">Action</th>
+            <th scope="col">Job</th>
+            <th scope="col">Reason</th>
+            <th scope="col">From</th>
+        </tr>
+    </thead>
+    <tbody>
+    @foreach (var entry in Model)
+    {
+        <tr>
+            <td>@entry.OccurredAtUtc.ToString("u")</td>
+            <td>@entry.ActorEmail</td>
+            <td>@entry.Action</td>
+            <td>@(entry.TargetJobId is { } id ? id.ToString()[..8] : "—")</td>
+            @* Razor HTML-encodes by default, which matters here: the reason is
+               free text an operator typed. *@
+            <td>@entry.Reason</td>
+            <td>@entry.IpAddress</td>
+        </tr>
+    }
+    </tbody>
+</table>
+
+@if (Model.Count == 0)
+{
+    <p class="muted">Nothing recorded yet.</p>
+}
+
+<p><a asp-action="Index">Back to console</a></p>

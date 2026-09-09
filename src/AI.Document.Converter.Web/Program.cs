@@ -1,5 +1,6 @@
 using AI.Document.Converter.Persistence;
 using AI.Document.Converter.Persistence.Billing;
+using AI.Document.Converter.Persistence.Operations;
 using AI.Document.Converter.Persistence.Entities;
 using AI.Document.Converter.Persistence.Export;
 using AI.Document.Converter.Persistence.Jobs;
@@ -58,6 +59,17 @@ builder.Services
     .AddEntityFrameworkStores<ConverterDbContext>()
     .AddDefaultTokenProviders();
 
+// SR-SEC-7. Two independent requirements, because either alone is
+// insufficient: the role without MFA means a stolen password reaches
+// cross-tenant data, and MFA without the role means every user does.
+builder.Services.AddAuthorization(options =>
+    options.AddPolicy(AI.Document.Converter.Web.Security.OperatorPolicy.Name, policy => policy
+        .RequireAuthenticatedUser()
+        .RequireRole(AI.Document.Converter.Web.Security.OperatorPolicy.RoleName)
+        .RequireClaim(
+            AI.Document.Converter.Web.Security.OperatorPolicy.AuthenticationMethodClaim,
+            AI.Document.Converter.Web.Security.OperatorPolicy.MultiFactorValue)));
+
 builder.Services.ConfigureApplicationCookie(options =>
 {
     // SaaS §4: same-origin HttpOnly cookie session. HttpOnly keeps the cookie
@@ -85,6 +97,8 @@ builder.Services.AddScoped<WorkspaceAccessService>();
 builder.Services.AddSingleton<IBillingProvider, NoBillingProvider>();
 builder.Services.AddScoped<SubscriptionService>();
 builder.Services.AddScoped<MeteringService>();
+builder.Services.AddScoped<OperatorConsoleService>();
+builder.Services.AddScoped<OperatorInspectionService>();
 builder.Services.AddScoped<ConversionIntakeService>();
 
 // The upload page shows these values and the worker's sweep enforces them, both
@@ -128,6 +142,22 @@ builder.Services.AddControllersWithViews(options =>
 });
 
 var app = builder.Build();
+
+// Operator role management, from the command line only.
+//
+// SR-SEC-7 makes operator status a privileged, MFA-gated thing, so granting it
+// is deliberately NOT a web page: a UI that hands out administrative access is
+// a privilege-escalation target, for something done a handful of times in a
+// system's life. Running it requires shell access to the host and the
+// database connection string, which is a reasonable bar for the action.
+//
+// It goes through UserManager rather than raw SQL so the account is verified to
+// exist and the role tables stay consistent.
+if (args.Length > 0 && OperatorRoleCommand.Handles(args[0]))
+{
+    return await OperatorRoleCommand.RunAsync(app.Services, args);
+}
+
 
 if (app.Environment.IsDevelopment())
 {
@@ -174,5 +204,98 @@ app.MapGet("/healthz", () => Results.Ok(new { status = "ok" }));
 
 app.Run();
 
+return 0;
+
 // Exposed so the integration test host can reference this assembly.
 public partial class Program;
+
+// Placed at the end of the file: it is a maintenance path, not part of the
+// request pipeline.
+internal static class OperatorRoleCommand
+{
+    private const string Grant = "grant-operator";
+    private const string Revoke = "revoke-operator";
+    private const string List = "list-operators";
+
+    public static bool Handles(string argument) =>
+        argument is Grant or Revoke or List;
+
+    public static async Task<int> RunAsync(IServiceProvider services, string[] args)
+    {
+        await using var scope = services.CreateAsyncScope();
+
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var roles = scope.ServiceProvider.GetRequiredService<RoleManager<ApplicationRole>>();
+
+        var role = AI.Document.Converter.Web.Security.OperatorPolicy.RoleName;
+
+        if (!await roles.RoleExistsAsync(role))
+        {
+            await roles.CreateAsync(new ApplicationRole { Name = role });
+        }
+
+        if (args[0] == List)
+        {
+            var operators = await users.GetUsersInRoleAsync(role);
+
+            foreach (var op in operators)
+            {
+                // Two-factor state is printed alongside, because an operator
+                // without it cannot actually reach the console and that is
+                // otherwise invisible until they try.
+                Console.WriteLine(
+                    $"{op.Email}	two-factor: {(op.TwoFactorEnabled ? "on" : "OFF - cannot use the console")}");
+            }
+
+            if (operators.Count == 0)
+            {
+                Console.WriteLine("No operators.");
+            }
+
+            return 0;
+        }
+
+        if (args.Length < 2)
+        {
+            Console.Error.WriteLine($"Usage: {args[0]} <email>");
+            return 1;
+        }
+
+        var user = await users.FindByEmailAsync(args[1]);
+
+        if (user is null)
+        {
+            Console.Error.WriteLine($"No account with email '{args[1]}'.");
+            return 1;
+        }
+
+        if (args[0] == Grant)
+        {
+            var result = await users.AddToRoleAsync(user, role);
+
+            if (!result.Succeeded && !await users.IsInRoleAsync(user, role))
+            {
+                Console.Error.WriteLine(string.Join("; ", result.Errors.Select(e => e.Description)));
+                return 1;
+            }
+
+            Console.WriteLine($"Granted the {role} role to {user.Email}.");
+
+            if (!user.TwoFactorEnabled)
+            {
+                // Not a failure - the grant is real - but the account cannot
+                // use the console yet, and saying so here saves a confusing
+                // "access denied" later.
+                Console.WriteLine(
+                    "NOTE: this account has no second factor, so the operator console will refuse it. "
+                    + "Have them set one up at /security/two-factor, then sign out and back in.");
+            }
+
+            return 0;
+        }
+
+        await users.RemoveFromRoleAsync(user, role);
+        Console.WriteLine($"Removed the {role} role from {user.Email}.");
+        return 0;
+    }
+}

@@ -149,6 +149,16 @@ public sealed class AccountController : Controller
             return RedirectToLocalOrDashboard(returnUrl);
         }
 
+        if (result.RequiresTwoFactor)
+        {
+            // The password was correct but the session is not established yet.
+            // Identity holds a short-lived partial sign-in; the challenge below
+            // completes it. Redirecting rather than rendering inline keeps the
+            // password out of a form that gets posted a second time.
+            return RedirectToAction(
+                nameof(TwoFactorChallenge), new { returnUrl, rememberMe = model.RememberMe });
+        }
+
         if (result.IsNotAllowed)
         {
             // Identity returns IsNotAllowed for an unconfirmed email. Saying so
@@ -172,6 +182,68 @@ public sealed class AccountController : Controller
         // One message for both "no such user" and "wrong password", so the form
         // cannot be used to enumerate which email addresses are registered.
         ModelState.AddModelError(string.Empty, "Incorrect email or password.");
+        return View(model);
+    }
+
+    [HttpGet("two-factor")]
+    [AllowAnonymous]
+    public async Task<IActionResult> TwoFactorChallenge(string? returnUrl = null, bool rememberMe = false)
+    {
+        // There is no valid challenge without a partial sign-in, so arriving
+        // here directly means the password step was skipped.
+        if (await _signInManager.GetTwoFactorAuthenticationUserAsync() is null)
+        {
+            return RedirectToAction(nameof(Login), new { returnUrl });
+        }
+
+        ViewData["ReturnUrl"] = returnUrl;
+        return View(new TwoFactorChallengeViewModel { RememberMe = rememberMe });
+    }
+
+    [HttpPost("two-factor")]
+    [AllowAnonymous]
+    public async Task<IActionResult> TwoFactorChallenge(
+        TwoFactorChallengeViewModel model, string? returnUrl = null)
+    {
+        ViewData["ReturnUrl"] = returnUrl;
+
+        var user = await _signInManager.GetTwoFactorAuthenticationUserAsync();
+
+        if (user is null)
+        {
+            // The partial sign-in expired while they were fetching their phone.
+            return RedirectToAction(nameof(Login), new { returnUrl });
+        }
+
+        if (!ModelState.IsValid)
+        {
+            return View(model);
+        }
+
+        var code = model.Code.Replace(" ", string.Empty).Replace("-", string.Empty);
+
+        // lockoutOnFailure so the second factor cannot be brute-forced. A
+        // six-digit code is only 10^6 possibilities, which is nothing without a
+        // limit on attempts.
+        var result = await _signInManager.TwoFactorAuthenticatorSignInAsync(
+            code, model.RememberMe, rememberClient: false);
+
+        if (result.Succeeded)
+        {
+            _logger.LogInformation("User {UserId} completed two-factor sign-in", user.Id);
+            return RedirectToLocalOrDashboard(returnUrl);
+        }
+
+        if (result.IsLockedOut)
+        {
+            ModelState.AddModelError(
+                string.Empty, "This account is temporarily locked after too many attempts. Try again shortly.");
+            return View(model);
+        }
+
+        ModelState.AddModelError(
+            nameof(model.Code), "That code was not accepted. Try the current code from your authenticator app.");
+
         return View(model);
     }
 
