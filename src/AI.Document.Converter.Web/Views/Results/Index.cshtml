@@ -1,0 +1,63 @@
+@model AI.Document.Converter.Web.Controllers.ResultsViewModel
+@{ ViewData["Title"] = "Conversion results"; }
+<h1>Conversion results</h1>
+<p>
+    Status <strong>@Model.Status</strong> · preset @Model.PresetName ·
+    created @Model.CreatedAtUtc.ToString("u")
+</p>
+@if (Model.Status == "CompletedWithWarnings")
+{
+    <p class="warning-banner"><strong>Some content was not fully recovered.</strong>
+       The files below completed, but the warnings listed against them describe what is missing.
+       This is not a complete extraction of those documents.</p>
+}
+@foreach (var item in Model.Items)
+{
+    <section class="result-item">
+        @* Razor HTML-encodes by default, so a filename containing markup is
+           displayed as text rather than injected into the page (SR-SEC-3). *@
+        <h2>@item.FileName</h2>
+        <p>@item.Status · @item.SizeBytes bytes</p>
+
+        @if (!string.IsNullOrEmpty(item.ErrorMessage))
+        {
+            <p class="error">@item.ErrorMessage</p>
+        }
+
+        @if (item.Warnings.Count > 0)
+        {
+            <h3>What was not recovered</h3>
+            <ul>
+            @foreach (var warning in item.Warnings)
+            {
+                <li>
+                    <strong>@warning.Severity</strong> — @warning.Message
+                    @if (warning.PageNumber is not null) { <text>(page @warning.PageNumber)</text> }
+                    @if (warning.SheetName is not null) { <text>(sheet @warning.SheetName)</text> }
+                </li>
+            }
+            </ul>
+        }
+
+        @if (item.Artifacts.Count > 0)
+        {
+            <ul>
+            @foreach (var artifact in item.Artifacts)
+            {
+                <li>
+                    @artifact.FileName (@artifact.SizeBytes bytes)
+                    <a asp-action="Preview" asp-route-jobId="@Model.JobId"
+                       asp-route-artifactId="@artifact.Id">Preview</a>
+                    <a asp-action="Download" asp-route-jobId="@Model.JobId"
+                       asp-route-artifactId="@artifact.Id">Download</a>
+                </li>
+            }
+            </ul>
+        }
+        else
+        {
+            <p>No output was produced for this file.</p>
+        }
+    </section>
+}
+<p><a asp-controller="Dashboard" asp-action="Index">Back to dashboard</a></p>

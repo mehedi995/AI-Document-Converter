@@ -2,8 +2,8 @@
 
 **Last updated:** 2026-09-08
 **Baseline commit:** `d27e8a9` (desktop v1.0.0)
-**Current phase:** Phase 1 in progress. **Documents now actually convert** end to end through the
-real engine. **No results view and no download yet.**
+**Current phase:** **Phase 1's first customer journey is complete** - register, upload, convert
+with the real engine, view results, download. Retention, cancel/retry and export are not built.
 
 > Scope note: the cloud SaaS edition is authorized and supersedes the desktop-only /
 > no-server / no-auth / no-database constraints **for the cloud edition only**. The desktop
@@ -487,6 +487,52 @@ real gap for production and not yet covered.
 
 ---
 
+### Phase 1 - results view and authorized download (increment 10)
+
+The journey now closes: a customer can see what was produced, what was not recovered, and take the
+output away.
+
+| Added | Purpose |
+|---|---|
+| `ResultsController` | Job detail, artifact preview, authorized download |
+| Results views | Warning panel, per-file status, bounded preview |
+| Security headers | CSP, `X-Content-Type-Options`, `Referrer-Policy` |
+| `ArtifactAuthorizationTests` | 4 tests pinning the download query |
+
+**Cross-tenant isolation verified on the live download path,** with two real accounts:
+
+| Eve requesting Alice's URLs | Alice requesting her own |
+|---|---|
+| results page → **404** | results page → **200** |
+| artifact preview → **404** | artifact download → **200** |
+| artifact download → **404** | |
+
+404 rather than 403, deliberately: a job that exists but belongs to someone else must be
+indistinguishable from one that does not exist, or the URL becomes an existence oracle.
+
+**Verified on the live response:** `Content-Disposition: attachment`, `Content-Type:
+text/markdown`, `X-Content-Type-Options: nosniff`, and a CSP with `object-src 'none'` and
+`frame-ancestors 'none'`. The downloaded bytes are the real conversion - front matter naming
+`sample.pdf`, the heading, and the table.
+
+**The results page surfaces what was lost**, not just that something happened: the
+`CompletedWithWarnings` banner states plainly that this is *not* a complete extraction, and the
+per-file panel shows "No text could be extracted from 1 of 3 pages... OCR is not enabled, so this
+content was not recovered."
+
+#### Deliberately not done yet
+
+**The preview shows escaped Markdown source, not rendered HTML.** Rendering converted customer
+documents as HTML would execute whatever markup a crafted source file carried through the pipeline
+(SR-SEC-3). A rendered view needs a real sanitizer, and it is not claimed until it has one. The CSP
+is defence in depth behind the encoding, not a substitute for it.
+
+**196 passed, 0 failed** (121 unit + 30 web + 45 integration). Build clean, zero warnings - a
+`CA2024` warning (`reader.EndOfStream` blocking inside an async method) was fixed rather than
+suppressed, by reading one character past the preview limit to detect truncation.
+
+---
+
 ## 2. Not started
 
 Phases 1–4 in full: web host, identity/workspaces, upload, persisted jobs and durable queue, results
@@ -524,12 +570,12 @@ Verified against source and executed runs, these documented claims do **not** ho
 
 ## 5. Next concrete task
 
-The results view and authorized download: show the converted Markdown, the warning panel, and the
-source/output comparison; serve artifacts through a gate that resolves by artifact id **and**
-workspace. The cross-tenant test already proves why id alone is not enough - now the download path
-has to actually obey it.
+Retention and deletion (SR-SEC-6), which is the largest unmet promise still on screen: the upload
+page tells customers source files are kept 24 hours and output 7 days, and nothing enforces that
+yet. Needs a sweep, an `Expired` transition, customer-initiated deletion, and the orphaned-object
+reconciliation noted in increment 9 - a sweep that walks rows alone will never find orphans.
 
-After that: retention sweeps plus an orphaned-object reconciliation pass (see the gap above).
+Then: cancel and retry, batch progress, and ZIP export.
 
 **Decision-independent work that can proceed in parallel** (in priority order):
 

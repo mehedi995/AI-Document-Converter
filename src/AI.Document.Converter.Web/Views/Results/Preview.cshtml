@@ -1,0 +1,22 @@
+@model AI.Document.Converter.Web.Controllers.PreviewViewModel
+@{ ViewData["Title"] = "Preview"; }
+<h1>@Model.FileName</h1>
+@if (Model.Truncated)
+{
+    <p><strong>Preview truncated.</strong> Download the file for the complete output.</p>
+}
+@*
+    Shown as escaped source text, not as rendered HTML.
+
+    The content is a converted customer document, so rendering it as HTML would
+    execute whatever markup a crafted source file managed to carry through the
+    pipeline (SR-SEC-3). Razor encodes it here, so the page displays exactly the
+    Markdown that was produced and nothing runs. A rendered view needs a real
+    sanitizer first, and is not claimed until it has one.
+*@
+<pre class="markdown-source">@Model.Content</pre>
+<p>
+    <a asp-action="Download" asp-route-jobId="@Model.JobId" asp-route-artifactId="@Model.ArtifactId">Download</a>
+    ·
+    <a asp-action="Index" asp-route-jobId="@Model.JobId">Back to results</a>
+</p>

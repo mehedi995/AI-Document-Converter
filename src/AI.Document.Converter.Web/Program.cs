@@ -123,6 +123,21 @@ else
     app.UseHsts();
 }
 
+// SR-SEC-3, defence in depth. Converted customer documents are displayed as
+// escaped text rather than rendered HTML, so nothing should be able to execute
+// in the first place - but a CSP means a mistake in one view does not become a
+// working script injection. No inline script, no third-party origins, and
+// frame-ancestors 'none' so the app cannot be framed for clickjacking.
+app.Use(async (context, next) =>
+{
+    context.Response.Headers["Content-Security-Policy"] =
+        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+        + "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
+    context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+    context.Response.Headers["Referrer-Policy"] = "same-origin";
+    await next();
+});
+
 app.UseHttpsRedirection();
 app.UseStaticFiles();
 

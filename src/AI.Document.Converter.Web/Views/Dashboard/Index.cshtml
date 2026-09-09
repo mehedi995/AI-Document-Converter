@@ -3,15 +3,16 @@
 <h1>@Model.WorkspaceName</h1>
 <p>Workspace <code>@Model.WorkspaceSlug</code></p>
 <form method="post" asp-controller="Account" asp-action="Logout"><button type="submit">Sign out</button></form>
+<p><a asp-controller="Upload" asp-action="Index"><strong>New conversion</strong></a></p>
 <h2>Recent conversions</h2>
 @if (Model.RecentJobs.Count == 0)
 {
-    <p>No conversions yet. Upload is not built yet in this scaffold.</p>
+    <p>No conversions yet.</p>
 }
 else
 {
     <table>
-        <thead><tr><th>Created (UTC)</th><th>Preset</th><th>Files</th><th>Status</th></tr></thead>
+        <thead><tr><th>Created (UTC)</th><th>Preset</th><th>Files</th><th>Status</th><th></th></tr></thead>
         <tbody>
         @foreach (var job in Model.RecentJobs)
         {
@@ -20,6 +21,7 @@ else
                 <td>@job.PresetName</td>
                 <td>@job.FileCount</td>
                 <td>@job.Status</td>
+                <td><a asp-controller="Results" asp-action="Index" asp-route-jobId="@job.Id">View</a></td>
             </tr>
         }
         </tbody>
