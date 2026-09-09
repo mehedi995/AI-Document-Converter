@@ -2,8 +2,8 @@
 
 **Last updated:** 2026-09-08
 **Baseline commit:** `d27e8a9` (desktop v1.0.0)
-**Current phase:** **Phase 1's documented output contract is complete** - Markdown, chunks,
-metadata, manifest, export. **Batch progress is not built.**
+**Current phase:** **Phase 1 complete.** The full customer journey works end to end with real
+progress reporting. Phase 2 items (history search, reconvert) and the orphan sweep remain.
 
 > Scope note: the cloud SaaS edition is authorized and supersedes the desktop-only /
 > no-server / no-auth / no-database constraints **for the cloud edition only**. The desktop
@@ -699,6 +699,40 @@ the heading kept with its content and the table intact (FR-019/FR-020).
 
 ---
 
+### Phase 1 - dashboard with real batch progress (increment 15)
+
+| Added | Purpose |
+|---|---|
+| Per-status counts in the dashboard query | Computed in SQL, not by loading every item |
+| `GET /dashboard/status` | JSON for the poll |
+| `wwwroot/js/dashboard.js` | Polls only while work is in flight |
+| Real empty state and outcome badges | Every outcome named separately |
+| `DashboardProgressTests` | 6 tests on the honesty rules |
+
+**Progress is a count of finished files, never a percentage.** SaaS §10 forbids fabricated
+percentages, and the reason is concrete: nothing knows how far through the *current* document the
+engine is - extraction time depends on the document - so a bar creeping forward on a timer tells
+the user something nobody actually knows, and they will believe it. The page says
+`2 of 5 files finished`, which is a fact.
+
+**Every outcome is a separate badge.** `1 complete` and `1 with warnings` are never folded into
+`2 complete`; that would be the exact misreport the warnings channel exists to prevent.
+
+**Queued is in flight but not "converting".** A queued item has not started, and showing it as
+converting would display activity that is not happening.
+
+**The poll stops when work stops.** A page left open overnight should not keep hitting the server.
+Nothing is animated or estimated client-side; every number comes from the server, and a client with
+scripting disabled sees identical information, just less often.
+
+**Verified on real data:** with both items queued the endpoint reported `anyInFlight: true` and
+`0 of 2 files finished`; after the worker ran, `anyInFlight: false` with `1 complete` and
+`1 with warnings` as separate counts.
+
+**236 passed, 0 failed** (121 unit + 70 web + 45 integration). Build clean.
+
+---
+
 ## 2. Not started
 
 Phases 1–4 in full: web host, identity/workspaces, upload, persisted jobs and durable queue, results
@@ -736,12 +770,11 @@ Verified against source and executed runs, these documented claims do **not** ho
 
 ## 5. Next concrete task
 
-Batch progress on the dashboard: per-file stages that reflect **real work**, not a fabricated
-percentage (SaaS §10). The job state machine already records real transitions, so this is
-surfacing what exists rather than inventing it.
+Phase 2's remaining items: conversion history with search and filter, and reconvert (a new run
+from the same source, not an overwrite - cloud runs are immutable, FR-044 superseded).
 
-Then the storage/row reconciliation pass still open from increment 9, and Phase 2's remaining
-items (history search/filter, reconvert).
+Also still open: the storage/row reconciliation pass from increment 9. The retention sweep walks
+rows, so an object with no row pointing at it is invisible to it.
 
 **Decision-independent work that can proceed in parallel** (in priority order):
 

@@ -1,29 +1,98 @@
 @model AI.Document.Converter.Web.Controllers.DashboardViewModel
 @{ ViewData["Title"] = "Dashboard"; }
-<h1>@Model.WorkspaceName</h1>
-<p>Workspace <code>@Model.WorkspaceSlug</code></p>
-<form method="post" asp-controller="Account" asp-action="Logout"><button type="submit">Sign out</button></form>
-<p><a asp-controller="Upload" asp-action="Index"><strong>New conversion</strong></a></p>
+
+<header class="dashboard-header">
+    <div>
+        <h1>@Model.WorkspaceName</h1>
+        <p class="muted">Workspace <code>@Model.WorkspaceSlug</code></p>
+    </div>
+    <form method="post" asp-controller="Account" asp-action="Logout">
+        <button type="submit" class="secondary">Sign out</button>
+    </form>
+</header>
+
+@if (TempData["Message"] is string message)
+{
+    <p class="notice">@message</p>
+}
+
+<p><a class="button-link primary" asp-controller="Upload" asp-action="Index">New conversion</a></p>
+
 <h2>Recent conversions</h2>
+
 @if (Model.RecentJobs.Count == 0)
 {
-    <p>No conversions yet.</p>
+    @* A real empty state, not a blank table (SaaS section 10). *@
+    <div class="empty-state">
+        <p><strong>No conversions yet.</strong></p>
+        <p>Upload a PDF, Word, Excel, PowerPoint or text file and it will be converted to
+           AI-ready Markdown.</p>
+    </div>
 }
 else
 {
-    <table>
-        <thead><tr><th>Created (UTC)</th><th>Preset</th><th>Files</th><th>Status</th><th></th></tr></thead>
+    <table id="jobs-table" data-status-url="@Url.Action("Status")">
+        <thead>
+            <tr>
+                <th>Created (UTC)</th>
+                <th>Preset</th>
+                <th>Progress</th>
+                <th>Outcome</th>
+                <th></th>
+            </tr>
+        </thead>
         <tbody>
         @foreach (var job in Model.RecentJobs)
         {
-            <tr>
-                <td>@job.CreatedAtUtc.ToString("u")</td>
+            <tr data-job-id="@job.Id" data-in-flight="@job.IsInFlight.ToString().ToLowerInvariant()">
+                <td>@job.CreatedAtUtc.ToString("yyyy-MM-dd HH:mm")</td>
                 <td>@job.PresetName</td>
-                <td>@job.FileCount</td>
-                <td>@job.Status</td>
+                <td class="js-progress">@job.ProgressDescription</td>
+                <td class="js-outcome">
+                    @* Each outcome is named rather than folded into one number,
+                       so "completed with warnings" is never displayed as a
+                       clean success. *@
+                    @if (job.IsDeleted)
+                    {
+                        <span class="badge badge-muted">Files deleted</span>
+                    }
+                    else if (job.IsInFlight)
+                    {
+                        <span class="badge badge-progress">
+                            @(job.InProgressCount > 0 ? "Converting" : "Queued")
+                        </span>
+                    }
+                    else
+                    {
+                        @if (job.CompletedCount > 0)
+                        {
+                            <span class="badge badge-ok">@job.CompletedCount complete</span>
+                        }
+                        @if (job.WarningCount > 0)
+                        {
+                            <span class="badge badge-warn">@job.WarningCount with warnings</span>
+                        }
+                        @if (job.FailedCount > 0)
+                        {
+                            <span class="badge badge-fail">@job.FailedCount failed</span>
+                        }
+                        @if (job.CancelledCount > 0)
+                        {
+                            <span class="badge badge-muted">@job.CancelledCount cancelled</span>
+                        }
+                        @if (job.Status == "Expired")
+                        {
+                            <span class="badge badge-muted">Expired</span>
+                        }
+                    }
+                </td>
                 <td><a asp-controller="Results" asp-action="Index" asp-route-jobId="@job.Id">View</a></td>
             </tr>
         }
         </tbody>
     </table>
+}
+
+@section Scripts {
+    <script src="~/js/dashboard.js" asp-append-version="true"></script>
 }
