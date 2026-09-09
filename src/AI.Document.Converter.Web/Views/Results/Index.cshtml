@@ -60,4 +60,8 @@
         }
     </section>
 }
+<form method="post" asp-action="Delete" asp-route-jobId="@Model.JobId"
+      onsubmit="return confirm('Delete the files for this conversion? This cannot be undone.');">
+    <button type="submit">Delete these files</button>
+</form>
 <p><a asp-controller="Dashboard" asp-action="Index">Back to dashboard</a></p>

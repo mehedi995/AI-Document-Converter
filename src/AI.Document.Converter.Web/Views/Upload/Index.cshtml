@@ -12,9 +12,10 @@
         </select>
     </p>
     <p>Up to @Model.MaxFiles files, @Model.MaxFileSizeMb MB each. PDF, DOCX, XLSX, PPTX, TXT.</p>
-    <p><strong>Retention:</strong> source files are kept for 24 hours and converted output for 7
-       days, then deleted automatically. Files are processed on our servers; nothing is sent to a
-       third-party AI service.</p>
+    @* Rendered from the same RetentionPolicy the worker's sweep enforces, so
+       this sentence cannot drift away from what actually happens. *@
+    <p><strong>Retention:</strong> @Model.RetentionNotice
+       Files are processed on our servers; nothing is sent to a third-party AI service.</p>
     <button type="submit">Upload and convert</button>
 </form>
 <p><a asp-controller="Dashboard" asp-action="Index">Back to dashboard</a></p>

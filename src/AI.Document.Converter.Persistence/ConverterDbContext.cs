@@ -109,6 +109,12 @@ public sealed class ConverterDbContext
 
             // Drives the dashboard's "recent jobs" list.
             entity.HasIndex(j => new { j.WorkspaceId, j.CreatedAtUtc });
+
+            // The retention sweep's query: find jobs whose source or output
+            // clock has run out and that have not been purged yet. Without
+            // this the sweep degrades into a full scan as history grows.
+            entity.HasIndex(j => new { j.CreatedAtUtc, j.SourceBytesPurgedAtUtc });
+            entity.HasIndex(j => new { j.CompletedAtUtc, j.OutputBytesPurgedAtUtc });
         });
 
         builder.Entity<ConversionJobItem>(entity =>

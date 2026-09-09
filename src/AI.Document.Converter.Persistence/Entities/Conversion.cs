@@ -109,6 +109,22 @@ public sealed class ConversionJob
     // job is never mistaken for a finished one (SR-JOB-4).
     public DateTime? CancelledAtUtc { get; set; }
 
+    // The deletion tombstone (SR-SEC-6). Set when the customer deletes the job,
+    // and it OUTLIVES the bytes on purpose.
+    //
+    // Without it, deletion is not actually deletion: a queued or retried item
+    // could be picked up afterwards and write a fresh artifact for a job the
+    // customer believes is gone. The worker checks this before publishing, and
+    // a restored backup that replays old rows still carries the tombstone, so
+    // the content is not served again.
+    public DateTime? DeletedAtUtc { get; set; }
+
+    // Which of the two retention clocks has already been applied, so a sweep
+    // does not repeatedly re-delete and re-log the same objects.
+    public DateTime? SourceBytesPurgedAtUtc { get; set; }
+
+    public DateTime? OutputBytesPurgedAtUtc { get; set; }
+
     // Optimistic concurrency. Two workers finishing two items of the same job
     // at the same moment must not clobber each other's status update.
     public uint Version { get; set; }

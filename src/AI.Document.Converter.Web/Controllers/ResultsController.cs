@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using AI.Document.Converter.Persistence;
 using AI.Document.Converter.Persistence.Entities;
+using AI.Document.Converter.Persistence.Retention;
 using AI.Document.Converter.Persistence.Storage;
 using AI.Document.Converter.Web.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -21,17 +22,20 @@ public sealed class ResultsController : Controller
     private readonly ConverterDbContext _db;
     private readonly IObjectStorage _storage;
     private readonly WorkspaceAccessService _workspaceAccess;
+    private readonly RetentionService _retention;
     private readonly ILogger<ResultsController> _logger;
 
     public ResultsController(
         ConverterDbContext db,
         IObjectStorage storage,
         WorkspaceAccessService workspaceAccess,
+        RetentionService retention,
         ILogger<ResultsController> logger)
     {
         _db = db;
         _storage = storage;
         _workspaceAccess = workspaceAccess;
+        _retention = retention;
         _logger = logger;
     }
 
@@ -148,6 +152,31 @@ public sealed class ResultsController : Controller
         // browser sniff and render user-supplied content inline is how a stored
         // file becomes stored XSS.
         return File(content, "text/markdown; charset=utf-8", artifact.FileName);
+    }
+
+    // Customer-initiated deletion (SR-SEC-6). POST, not GET: it is destructive,
+    // and CSRF validation is applied to every non-GET action.
+    [HttpPost("{jobId:guid}/delete")]
+    public async Task<IActionResult> Delete(Guid jobId, CancellationToken cancellationToken)
+    {
+        var workspace = await _workspaceAccess.GetDefaultWorkspaceAsync(GetUserId(), cancellationToken);
+        if (workspace is null)
+        {
+            return NotFound();
+        }
+
+        // Scoped by workspace inside the service too. A destructive action must
+        // not be reachable by changing a number in a URL (SR-SEC-2).
+        var deleted = await _retention.DeleteJobContentAsync(
+            workspace.Id, jobId, DateTime.UtcNow, cancellationToken);
+
+        if (!deleted)
+        {
+            return NotFound();
+        }
+
+        TempData["Message"] = "The files for that conversion have been deleted.";
+        return RedirectToAction("Index", "Dashboard");
     }
 
     // The single authorization path for artifact bytes. Both the preview and

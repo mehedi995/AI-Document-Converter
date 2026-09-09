@@ -44,7 +44,27 @@ public sealed class JobProcessor
     {
         var item = await _db.ConversionJobItems
             .Include(i => i.SourceDocument)
+            .Include(i => i.Job)
             .SingleAsync(i => i.Id == itemId, cancellationToken);
+
+        // SR-SEC-6: deletion must prevent a queued or retried item from
+        // recreating content. Without this check, a customer could delete a job
+        // and then have a worker - one that claimed the item just before the
+        // deletion, or one replaying it after a restore - write a brand-new
+        // artifact into it. The tombstone outlives the bytes precisely so this
+        // check still works after everything else is gone.
+        if (item.Job?.DeletedAtUtc is not null)
+        {
+            _logger.LogInformation(
+                "Skipping item {ItemId}: its job was deleted, so no content will be recreated", itemId);
+
+            item.Status = JobStatus.Cancelled;
+            item.LeaseOwner = null;
+            item.LeaseExpiresAtUtc = null;
+            item.CompletedAtUtc = DateTime.UtcNow;
+            await _db.SaveChangesAsync(cancellationToken);
+            return;
+        }
 
         // SR-SEC-2: the workspace is reloaded from the persisted row, never
         // taken from whatever handed us this id. A queue payload's tenant id is
@@ -121,6 +141,19 @@ public sealed class JobProcessor
             // this same worker made. Reloading refreshes the version. Nothing
             // has been modified on the entity yet, so nothing is lost.
             await _db.Entry(item).ReloadAsync(cancellationToken);
+
+            // Checked again here, not only at the start: extraction takes real
+            // time, and a customer can delete the job while it is running. The
+            // first check stops work that never should have begun; this one
+            // stops a result from landing in a job the customer already
+            // believes is gone.
+            await _db.Entry(item).Reference(i => i.Job).LoadAsync(cancellationToken);
+            if (item.Job?.DeletedAtUtc is not null)
+            {
+                _logger.LogInformation(
+                    "Discarding result for item {ItemId}: its job was deleted during extraction", itemId);
+                return;
+            }
 
             await PublishAsync(item, workspaceId, document, markdown, extracted, cancellationToken);
         }

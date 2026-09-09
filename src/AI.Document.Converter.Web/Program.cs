@@ -1,5 +1,6 @@
 using AI.Document.Converter.Persistence;
 using AI.Document.Converter.Persistence.Entities;
+using AI.Document.Converter.Persistence.Retention;
 using AI.Document.Converter.Persistence.Storage;
 using AI.Document.Converter.Web.Services;
 using Microsoft.AspNetCore.Identity;
@@ -76,6 +77,12 @@ builder.Services.ConfigureApplicationCookie(options =>
 builder.Services.AddScoped<WorkspaceProvisioner>();
 builder.Services.AddScoped<WorkspaceAccessService>();
 builder.Services.AddScoped<ConversionIntakeService>();
+
+// The upload page shows these values and the worker's sweep enforces them, both
+// from this one configuration section - so what the customer is promised and
+// what actually happens cannot drift apart (SR-SEC-6).
+builder.Services.Configure<RetentionPolicy>(builder.Configuration.GetSection("Retention"));
+builder.Services.AddScoped<RetentionService>();
 builder.Services.AddSingleton<UploadValidator>();
 
 // Local adapter for development. Production swaps in a private object store;

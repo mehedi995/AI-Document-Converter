@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using AI.Document.Converter.Persistence.Retention;
 using AI.Document.Converter.Web.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -15,16 +16,27 @@ public sealed class UploadController : Controller
 
     private readonly ConversionIntakeService _intake;
     private readonly WorkspaceAccessService _workspaceAccess;
+    private readonly RetentionPolicy _retentionPolicy;
 
-    public UploadController(ConversionIntakeService intake, WorkspaceAccessService workspaceAccess)
+    public UploadController(
+        ConversionIntakeService intake,
+        WorkspaceAccessService workspaceAccess,
+        Microsoft.Extensions.Options.IOptions<RetentionPolicy> retentionPolicy)
     {
         _intake = intake;
         _workspaceAccess = workspaceAccess;
+        _retentionPolicy = retentionPolicy.Value;
     }
 
+    // Built from the SAME policy object the worker's sweep enforces, so the
+    // page cannot promise one thing while the sweep does another (SR-SEC-6).
+    private UploadPageModel BuildPageModel() => new(
+        UploadValidator.MaxFileSizeBytes / (1024 * 1024),
+        MaxFilesPerUpload,
+        _retentionPolicy.DescribeForCustomer());
+
     [HttpGet("")]
-    public IActionResult Index() => View(new UploadPageModel(
-        UploadValidator.MaxFileSizeBytes / (1024 * 1024), MaxFilesPerUpload));
+    public IActionResult Index() => View(BuildPageModel());
 
     [HttpPost("")]
     [RequestSizeLimit(UploadValidator.MaxFileSizeBytes * MaxFilesPerUpload)]
@@ -45,16 +57,14 @@ public sealed class UploadController : Controller
         if (files.Count == 0)
         {
             ModelState.AddModelError(string.Empty, "Choose at least one file to convert.");
-            return View(new UploadPageModel(
-                UploadValidator.MaxFileSizeBytes / (1024 * 1024), MaxFilesPerUpload));
+            return View(BuildPageModel());
         }
 
         if (files.Count > MaxFilesPerUpload)
         {
             ModelState.AddModelError(
                 string.Empty, $"Upload at most {MaxFilesPerUpload} files at a time.");
-            return View(new UploadPageModel(
-                UploadValidator.MaxFileSizeBytes / (1024 * 1024), MaxFilesPerUpload));
+            return View(BuildPageModel());
         }
 
         // Buffered to a seekable stream because validation reads the header,
@@ -113,4 +123,4 @@ public sealed class UploadController : Controller
             ?? throw new InvalidOperationException("Authenticated request has no user id claim."));
 }
 
-public sealed record UploadPageModel(long MaxFileSizeMb, int MaxFiles);
+public sealed record UploadPageModel(long MaxFileSizeMb, int MaxFiles, string RetentionNotice);

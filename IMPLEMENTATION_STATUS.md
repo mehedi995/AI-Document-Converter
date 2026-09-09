@@ -2,8 +2,8 @@
 
 **Last updated:** 2026-09-08
 **Baseline commit:** `d27e8a9` (desktop v1.0.0)
-**Current phase:** **Phase 1's first customer journey is complete** - register, upload, convert
-with the real engine, view results, download. Retention, cancel/retry and export are not built.
+**Current phase:** Phase 1's customer journey works end to end, and the retention promise on the
+upload page is now enforced. **Cancel/retry, batch progress and export are not built.**
 
 > Scope note: the cloud SaaS edition is authorized and supersedes the desktop-only /
 > no-server / no-auth / no-database constraints **for the cloud edition only**. The desktop
@@ -533,6 +533,57 @@ suppressed, by reading one character past the preview limit to detect truncation
 
 ---
 
+### Phase 1 - retention and deletion (increment 11)
+
+The upload page told customers source files are kept 24 hours and output 7 days. Nothing enforced
+that. Now something does.
+
+| Added | Purpose |
+|---|---|
+| `RetentionPolicy` | The disclosed windows, as configuration |
+| `RetentionService` | Sweep + customer-initiated deletion |
+| `RetentionSweepService` | Timed sweep in the worker |
+| Tombstone (`ConversionJob.DeletedAtUtc`) | Stops deleted content being recreated |
+| `POST /results/{id}/delete` | Customer deletion |
+| `RetentionTests` | 8 tests against real PostgreSQL and real storage |
+
+**The upload page and the sweep read the same `RetentionPolicy` object**, so the sentence shown to
+the customer cannot drift away from what the sweep actually does.
+
+**Ordering is deliberate throughout: bytes are deleted BEFORE the row is marked.** Marking first
+would mean a crash in between leaves a row claiming the content is gone while it still sits in
+storage - the one outcome that turns a deletion promise into a false statement. The reverse leaves
+at worst a repeated delete, which is harmless because `DeleteAsync` is idempotent. Customer
+deletion inverts this for the *tombstone* specifically, which is written first so a crash cannot
+leave the job deletable-but-republishable.
+
+**Verified against the live system:**
+
+| Check | Result |
+|---|---|
+| Customer deletes a job | 4 stored objects → **0**; status `Expired`; tombstone set |
+| **Queue replay after deletion** | items forced back to `Queued`, worker run → **"Skipping item: its job was deleted, so no content will be recreated"** |
+| Content after replay | **0 files, 0 artifact rows** - nothing resurrected |
+| Item outcome | `Cancelled`, not silently re-run |
+
+That replay test is the SR-SEC-6 requirement that deletion must prevent queued or retried jobs from
+recreating artifacts. The worker checks the tombstone twice - once before starting, and again
+immediately before publishing, because extraction takes real time and a customer can delete midway.
+
+**A wording bug the tests caught:** the policy description rendered a 24-hour window as "1 day".
+Arithmetically identical, but vaguer than "24 hours" in a notice about when someone's files
+disappear. Fixed the formatter rather than the assertion.
+
+**204 passed, 0 failed** (121 unit + 38 web + 45 integration). Build clean.
+
+#### Still open
+
+The **orphaned-object gap from increment 9 is not closed.** The sweep walks rows, so an object with
+no row pointing at it is invisible to it. That needs a reconciliation pass over storage keys, and
+it is not written.
+
+---
+
 ## 2. Not started
 
 Phases 1–4 in full: web host, identity/workspaces, upload, persisted jobs and durable queue, results
@@ -570,12 +621,11 @@ Verified against source and executed runs, these documented claims do **not** ho
 
 ## 5. Next concrete task
 
-Retention and deletion (SR-SEC-6), which is the largest unmet promise still on screen: the upload
-page tells customers source files are kept 24 hours and output 7 days, and nothing enforces that
-yet. Needs a sweep, an `Expired` transition, customer-initiated deletion, and the orphaned-object
-reconciliation noted in increment 9 - a sweep that walks rows alone will never find orphans.
+Cancel and retry (FR-030, FR-037, SR-JOB-4): cancelling must stop unstarted items and safely end
+active ones, and retrying a failed item must not rerun the ones that already succeeded. The job
+state machine and `IsRetryable` already exist; the UI and the transitions do not.
 
-Then: cancel and retry, batch progress, and ZIP export.
+Then batch progress, ZIP export, and the storage/row reconciliation pass.
 
 **Decision-independent work that can proceed in parallel** (in priority order):
 
