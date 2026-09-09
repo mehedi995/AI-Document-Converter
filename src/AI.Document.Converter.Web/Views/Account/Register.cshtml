@@ -1,0 +1,12 @@
+@model AI.Document.Converter.Web.Models.RegisterViewModel
+@{ ViewData["Title"] = "Create your account"; }
+<h1>Create your account</h1>
+<form method="post">
+    <div asp-validation-summary="All"></div>
+    <p><label asp-for="Email"></label><input asp-for="Email" type="email" autocomplete="email" /></p>
+    <p><label asp-for="WorkspaceName"></label><input asp-for="WorkspaceName" /></p>
+    <p><label asp-for="Password"></label><input asp-for="Password" autocomplete="new-password" /></p>
+    <p><label asp-for="ConfirmPassword"></label><input asp-for="ConfirmPassword" autocomplete="new-password" /></p>
+    <button type="submit">Create account</button>
+</form>
+<p><a asp-action="Login">Already have an account? Sign in</a></p>

@@ -2,8 +2,8 @@
 
 **Last updated:** 2026-09-08
 **Baseline commit:** `d27e8a9` (desktop v1.0.0)
-**Current phase:** Phase 0 complete. **Phase 1 started 2026-09-09** — tooling installed, host
-scaffolded, schema migrated. No customer journey yet.
+**Current phase:** Phase 1 in progress. Account and workspace journey works end to end against a
+real database. **No upload, no job processing, no results view yet.**
 
 > Scope note: the cloud SaaS edition is authorized and supersedes the desktop-only /
 > no-server / no-auth / no-database constraints **for the cloud edition only**. The desktop
@@ -335,6 +335,64 @@ them needs a password I must not handle. See §4.
 
 ---
 
+### Phase 1 - account and workspace journey (increment 7)
+
+Database `adc_dev` created, `InitialSchema` applied, first vertical slice working end to end.
+
+| Added | Purpose |
+|---|---|
+| `IEmailSender` + `DevFileEmailSender` | Dev capture writes mail to a file stamped "THIS EMAIL WAS NOT SENT". Registered **only** in Development; any other environment refuses to start rather than dropping verification mail on the floor |
+| `WorkspaceProvisioner` | Personal workspace + Owner membership in the **same transaction** as the user |
+| `WorkspaceAccessService` | The single place workspace access is decided |
+| `AccountController` | Register, confirm, login, logout |
+| `DashboardController` | Workspace-scoped recent jobs |
+| `tests/AI.Document.Converter.Web.Tests` | Cross-tenant isolation against **real PostgreSQL** |
+
+**Verified over HTTP against the running app, not only by unit test:**
+
+| Step | Result |
+|---|---|
+| `POST /account/register` | 302 to pending; user + workspace + Owner membership in one transaction |
+| Login before confirming | refused, with an explanatory message |
+| Confirmation link from captured dev email | "Email confirmed" |
+| `GET /dashboard` signed out | 302 to `/account/login?ReturnUrl=%2Fdashboard` |
+| Login after confirming | 302 to `/dashboard`, showing only that user's workspace |
+| `POST` with no antiforgery token | **HTTP 400** |
+
+**Cross-tenant tests (SaaS 13.2) - 6/6 against real PostgreSQL** with two real users and two real
+workspaces. Deliberately not the in-memory provider: tenancy is enforced by queries, and a query
+only behaves as expected once a real database has translated it. The fixture creates a throwaway
+database per run and **throws rather than skips** when no connection is configured - a silently
+skipped isolation test is worse than none, because the suite still reports green.
+
+Covered: resolving another tenant's workspace by id; a foreign workspace being indistinguishable
+from a nonexistent one (otherwise any id is an existence oracle); listing returning only your own;
+job queries excluding the other tenant; **artifact lookup by id alone finding the wrong tenant's
+row**, which is exactly why `WorkspaceId` is denormalized onto `Artifact`; and membership
+uniqueness.
+
+**Two mistakes of mine, corrected:**
+
+1. The password policy contradicted its own comment - it claimed length over character classes but
+   left Identity's digit and uppercase rules on, so registration failed. Config now matches the
+   stated reasoning.
+2. The membership-uniqueness test went through EF's change tracker, which catches the duplicate
+   before PostgreSQL sees it; that version would have passed with no constraint on the table at
+   all. It now inserts with raw SQL and asserts SQLSTATE `23505`.
+
+**A pre-existing flaky test was found and fixed.** `RunAsync_Cancelled_StopsStartingNewFiles` used
+`CancelAfter(120)` racing a 20-file batch; it failed once under load, then passed on five
+consecutive re-runs. Nothing in this branch touches that path. Cancellation is now triggered
+deterministically by the work itself; verified over six consecutive runs.
+
+**172 passed, 0 failed** (121 unit + 6 web + 45 integration). Build clean.
+
+`adc_app` was granted `CREATEDB` so the fixture can create its throwaway database. That grants no
+access to other owners' databases, no file reads and no role creation - verified `rolsuper` and
+`rolcreaterole` are both false.
+
+---
+
 ## 2. Not started
 
 Phases 1–4 in full: web host, identity/workspaces, upload, persisted jobs and durable queue, results
@@ -365,22 +423,21 @@ Verified against source and executed runs, these documented claims do **not** ho
 
 | # | Blocker | Blocks | Notes |
 |---|---|---|---|
-| **1** | **`adc_dev` database and `adc_app` role do not exist**, and the connection string is not set | Applying migrations; running the host | Requires choosing a password, which must not pass through this conversation or the repo. Two commands, in `docs/saas/03-DEVELOPMENT-SETUP.md` §2. |
+| ~~1~~ | ~~Database and role~~ | - | **RESOLVED 2026-09-09.** `adc_dev` + `adc_app` created, `InitialSchema` applied. The app role password is randomly generated, stored only in user secrets, and is not the `postgres` password. |
 | 2 | **PyMuPDF AGPL** | — | **RESOLVED** — replaced with pdfplumber (MIT). |
 | 3 | Billing provider eligibility (Bangladesh seller) | Phase 3 only | Deferred by design; build a provider-neutral boundary first. Stripe merchant eligibility is not assumed. |
 | 4 | No container runtime (Docker not installed) | Worker sandboxing (SR-SEC-5); real Linux verification of A-03 | Not blocking Phase 1 on Windows, but the engine's Linux support is still proven only by simulation. |
 
 ## 5. Next concrete task
 
-**Once the database exists** (blocker 1): apply `InitialSchema`, then build the first vertical
-slice of the customer journey — registration with email verification (local capture adapter,
-clearly labelled), automatic personal-workspace creation, login, and a dashboard that lists the
-signed-in user's own workspace and nothing else. That slice is what the first cross-tenant
-authorization test will target.
+Private upload: content-based validation (magic bytes, declared-vs-actual size, archive expansion
+limits, safe filenames - SR-SEC-1), source bytes written to storage under a server-generated key,
+and the job persisted **before** anything is scheduled (SR-JOB-1). Then the worker claims an item
+under a lease, runs the real engine, and publishes artifacts only once they are complete
+(SR-JOB-3).
 
-Then: private upload with content-based validation (SR-SEC-1), persisted job before scheduling
-(SR-JOB-1), worker picks it up under a lease, real extraction through the existing engine, result
-preview, authorized download.
+The storage interface with a local-filesystem dev adapter comes first, since upload has nowhere to
+put bytes without it.
 
 **Decision-independent work that can proceed in parallel** (in priority order):
 

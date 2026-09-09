@@ -218,30 +218,49 @@ public class BatchServiceTests
         Assert.Equal(1, updates[1].SuccessCount);
     }
 
+    // FR-037: cancelling must stop files that have not started yet.
+    //
+    // Cancellation is triggered by the work itself once a set number of files
+    // have begun, NOT by a wall-clock timer. The original version used
+    // CancelAfter(120) racing a 20-file batch, which made the assertion depend
+    // on machine load - it was observed failing once on a loaded machine and
+    // passing on five consecutive re-runs. A timing race in a test eventually
+    // trains people to re-run instead of investigate, so the trigger is now
+    // deterministic.
     [Fact]
     public async Task RunAsync_Cancelled_StopsStartingNewFilesAndReturnsPartialSummary()
     {
+        const int totalFiles = 20;
+        const int cancelAfterStarted = 2;
+
         var startedCount = 0;
         using var cts = new CancellationTokenSource();
 
         async Task<ConversionResult> Operation(string path, CancellationToken ct)
         {
-            Interlocked.Increment(ref startedCount);
-            await Task.Delay(100, ct);
+            if (Interlocked.Increment(ref startedCount) >= cancelAfterStarted)
+            {
+                await cts.CancelAsync();
+            }
+
+            ct.ThrowIfCancellationRequested();
             return new ConversionResult { Success = true };
         }
 
-        cts.CancelAfter(120);
-
         var summary = await _service.RunAsync(
-            FilePaths(20),
+            FilePaths(totalFiles),
             Operation,
-            maxParallelism: 2,
+            maxParallelism: 1,
             new SynchronousProgress<BatchProgressUpdate>(_ => { }),
             cts.Token);
 
-        Assert.Equal(20, summary.TotalFiles);
-        Assert.True(startedCount < 20, "Cancellation should have prevented every file from starting.");
+        Assert.Equal(totalFiles, summary.TotalFiles);
+
+        // The point of the requirement: files queued behind the cancellation
+        // never begin at all.
+        Assert.True(
+            startedCount < totalFiles,
+            $"Cancellation should have prevented every file from starting, but {startedCount} of {totalFiles} began.");
         Assert.True(summary.ProcessedFiles <= startedCount);
     }
 

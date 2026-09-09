@@ -1,5 +1,6 @@
 using AI.Document.Converter.Persistence;
 using AI.Document.Converter.Persistence.Entities;
+using AI.Document.Converter.Web.Services;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
@@ -34,10 +35,17 @@ builder.Services
         options.SignIn.RequireConfirmedEmail = true;
         options.User.RequireUniqueEmail = true;
 
-        // Length carries more real strength than character-class rules, which
-        // mostly push people towards predictable substitutions.
+        // Length over character classes. A 12-character minimum carries more
+        // real strength than composition rules, which mostly push people
+        // towards predictable substitutions ("Password1!"). Identity's
+        // defaults require a digit, an uppercase and a lowercase; those are
+        // turned off deliberately rather than left on by omission, so the
+        // policy matches the reasoning.
         options.Password.RequiredLength = 12;
         options.Password.RequireNonAlphanumeric = false;
+        options.Password.RequireDigit = false;
+        options.Password.RequireUppercase = false;
+        options.Password.RequireLowercase = false;
 
         options.Lockout.MaxFailedAccessAttempts = 10;
         options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
@@ -63,6 +71,26 @@ builder.Services.ConfigureApplicationCookie(options =>
     options.LogoutPath = "/account/logout";
     options.AccessDeniedPath = "/account/denied";
 });
+
+builder.Services.AddScoped<WorkspaceProvisioner>();
+builder.Services.AddScoped<WorkspaceAccessService>();
+
+// The dev capture adapter is registered ONLY in Development. In any other
+// environment the application refuses to start until a real sender is wired up,
+// rather than silently writing verification and password-reset mail to a folder
+// where no customer will ever see it (SR-SEC-8).
+if (builder.Environment.IsDevelopment())
+{
+    builder.Services.Configure<DevFileEmailSenderOptions>(
+        builder.Configuration.GetSection("DevEmail"));
+    builder.Services.AddSingleton<IEmailSender, DevFileEmailSender>();
+}
+else
+{
+    throw new InvalidOperationException(
+        "No production IEmailSender is configured. Registration and password reset depend on "
+        + "real email delivery; refusing to start rather than dropping mail on the floor.");
+}
 
 builder.Services.AddControllersWithViews(options =>
 {

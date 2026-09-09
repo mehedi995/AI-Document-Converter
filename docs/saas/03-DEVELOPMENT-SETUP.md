@@ -46,8 +46,16 @@ From a shell (adjust the path if your PostgreSQL version differs):
 "/c/Program Files/PostgreSQL/18/bin/psql" -U postgres -c "CREATE DATABASE adc_dev OWNER adc_app;"
 ```
 
-The application connects as `adc_app`, never as a superuser. A compromised application
-credential should not be able to drop other databases or read the server's files.
+The integration tests create a throwaway database per run, which needs one extra right:
+
+```bash
+"/c/Program Files/PostgreSQL/18/bin/psql" -U postgres -c "ALTER ROLE adc_app CREATEDB;"
+```
+
+The application connects as `adc_app`, never as a superuser. `CREATEDB` lets the role create its
+own databases and drop the ones it owns; it does **not** grant access to databases owned by anyone
+else, nor the ability to read server files or create other roles. Verified: `rolsuper = false`,
+`rolcreaterole = false`.
 
 ### 2.2 Store the connection string in user secrets
 
@@ -175,8 +183,33 @@ server dependencies into a desktop install.
 
 ---
 
-## 8. Current state
+## 8. Testing against a real database
 
-Scaffold only. `Web` serves a placeholder page and `/healthz`; `Worker` is the default template
-with a database reference. **There is no upload, no job processing, and no results view yet** —
+`tests/AI.Document.Converter.Web.Tests` runs against **real PostgreSQL**, not the in-memory
+provider. Tenancy is enforced by queries, and a query only behaves the way you expect once a real
+database has translated it — the in-memory provider exercises neither SQL translation nor
+constraints nor the `timestamptz` mapping.
+
+The fixture creates a uniquely named database per run and drops it afterwards. It reads the
+connection from the **Web project's own user-secret store** (same `UserSecretsId`), so `dotnet
+test` works on any machine that can already run the app, with no second credential to configure.
+If no connection is available the fixture **throws rather than skipping** — a silently skipped
+cross-tenant test is worse than no test, because the suite still reports green while the isolation
+guarantee is unverified.
+
+## 9. Current state
+
+Registration, email verification, login, logout, and a workspace-scoped dashboard work end to end
+against a real database. **There is no upload, no job processing and no results view yet** —
 nothing here should be described as a working SaaS.
+
+Verified manually through the running application, not only by unit test:
+
+| Step | Result |
+|---|---|
+| `POST /account/register` | 302 → registration-pending; user, workspace and Owner membership created in one transaction |
+| Login before confirming | refused, with a message explaining why |
+| Confirmation link from the captured dev email | "Email confirmed" |
+| `GET /dashboard` signed out | 302 → `/account/login?ReturnUrl=%2Fdashboard` |
+| Login after confirming | 302 → `/dashboard`, showing only that user's workspace |
+| `POST` without an antiforgery token | HTTP 400 |
