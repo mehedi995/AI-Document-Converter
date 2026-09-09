@@ -2,8 +2,8 @@
 
 **Last updated:** 2026-09-08
 **Baseline commit:** `d27e8a9` (desktop v1.0.0)
-**Current phase:** Phase 0 complete. Conversion-integrity remediation in progress.
-**Phase 1 (web host) blocked on tooling installs — see §4.**
+**Current phase:** Phase 0 complete. **Phase 1 started 2026-09-09** — tooling installed, host
+scaffolded, schema migrated. No customer journey yet.
 
 > Scope note: the cloud SaaS edition is authorized and supersedes the desktop-only /
 > no-server / no-auth / no-database constraints **for the cloud edition only**. The desktop
@@ -292,6 +292,49 @@ against the real bundled engine.
 
 ---
 
+### Phase 1 — host scaffold and data model ✅ (increment 6)
+
+Tooling blockers cleared by the owner on 2026-09-09: **.NET SDK 10.0.400** and **PostgreSQL 18.6**
+(running, port 5432, scram-sha-256).
+
+| Added | Purpose |
+|---|---|
+| `global.json` | Pins SDK **10.0.400** so the repo cannot silently build on 9.0.315 |
+| `src/AI.Document.Converter.Contracts` | net10.0 — versioned worker request/result contract (empty so far) |
+| `src/AI.Document.Converter.Persistence` | net10.0 — EF Core entities, `ConverterDbContext`, migrations |
+| `src/AI.Document.Converter.Web` | net10.0 — ASP.NET Core host, Identity, cookie/CSRF config |
+| `src/AI.Document.Converter.Worker` | net10.0 — background processor (template + DB reference) |
+| `docs/saas/03-DEVELOPMENT-SETUP.md` | Setup, run, migrate, and the data-model rationale |
+
+**Verified:** pinning the SDK does **not** break the desktop app — the whole solution builds clean
+with net8.0/net8.0-windows and net10.0 side by side (0 warnings, 0 errors). Migration
+`InitialSchema` generates 14 tables, both `xmin` row versions, and every intended index including
+the tenant-scoped `IX_SourceDocuments_WorkspaceId_Sha256`.
+
+**Design decisions worth knowing:**
+
+- **`Persistence` is its own project** because both Web and Worker need the DbContext. Folding it
+  into `Infrastructure` (net8.0, ships inside the desktop install) would drag EF Core and Npgsql
+  into a desktop application.
+- **No EF global query filters for tenancy.** A global filter is bypassable
+  (`IgnoreQueryFilters`, raw SQL, `Find()` by key) and hides the security decision from the reader.
+  Every tenant-owned row carries `WorkspaceId` and ownership is enforced at each call site, so it
+  is visible in review and testable (SR-SEC-2). `WorkspaceId` is denormalized onto job items,
+  artifacts and warnings so the worker can authorize without a join.
+- **Leases, not locks** (`LeaseOwner`, `LeaseExpiresAtUtc`): an expired lease means the worker
+  died and the item is claimable again. At-least-once delivery; exactly-once is not claimed.
+- **`SourceDocument` deletes are `Restrict`** — removing a document must not erase the record that
+  work was done on it. Bytes go by retention; the row stays.
+- **UTC enforced by a model-wide value converter**, not by every call site remembering `UtcNow`.
+- **No connection string in the repo.** `appsettings.Development.json` carries the shape only;
+  the real value lives in .NET user secrets. `Program.cs` throws on startup rather than falling
+  back to a default, because a silent fallback is how someone writes to the wrong database.
+
+**Blocked on one owner action:** the database and application role do not exist yet, and creating
+them needs a password I must not handle. See §4.
+
+---
+
 ## 2. Not started
 
 Phases 1–4 in full: web host, identity/workspaces, upload, persisted jobs and durable queue, results
@@ -322,22 +365,22 @@ Verified against source and executed runs, these documented claims do **not** ho
 
 | # | Blocker | Blocks | Notes |
 |---|---|---|---|
-| **1** | **No .NET 10 SDK installed** (9.0.315 only) | Phase 1 project creation | Prescribed default is ASP.NET Core 10 LTS. .NET 9 is STS and **already out of support since May 2026**. Installing an SDK is a machine-level change requiring a download. |
-| **2** | **No Docker, no PostgreSQL** | EF Core migrations; worker sandbox | Prescribed default is EF Core + PostgreSQL + durable queue + isolated worker. Neither exists on this machine. Node 24 / npm 11 **are** present, so the Tailwind + TypeScript chain is fine. |
-| **3** | **PyMuPDF AGPL-3.0 (F-01)** | Commercial launch of PDF conversion | Needs a documented decision: buy the Artifex commercial licence, replace with a permissive library (pypdfium2 / pdfminer.six), or release the service under AGPL. **Does not block development** — DOCX/XLSX/PPTX/TXT are all MIT. |
-| 4 | Billing provider eligibility (Bangladesh seller) | Phase 3 only | Deferred by design. Build a provider-neutral boundary; Stripe merchant eligibility is not assumed. |
-
-Per `CLAUDE.md` §42 (Gate 2 — architecture) and §59, decisions 1–3 affect architecture and are not
-routine reversible defaults, so they are put to the owner rather than chosen unilaterally.
-
----
+| **1** | **`adc_dev` database and `adc_app` role do not exist**, and the connection string is not set | Applying migrations; running the host | Requires choosing a password, which must not pass through this conversation or the repo. Two commands, in `docs/saas/03-DEVELOPMENT-SETUP.md` §2. |
+| 2 | **PyMuPDF AGPL** | — | **RESOLVED** — replaced with pdfplumber (MIT). |
+| 3 | Billing provider eligibility (Bangladesh seller) | Phase 3 only | Deferred by design; build a provider-neutral boundary first. Stripe merchant eligibility is not assumed. |
+| 4 | No container runtime (Docker not installed) | Worker sandboxing (SR-SEC-5); real Linux verification of A-03 | Not blocking Phase 1 on Windows, but the engine's Linux support is still proven only by simulation. |
 
 ## 5. Next concrete task
 
-**On answers to blockers 1–2:** scaffold the modular monolith —
-`src/AI.Document.Converter.Web` (ASP.NET Core, Identity, Tailwind) and
-`src/AI.Document.Converter.Worker`, plus `AI.Document.Converter.Contracts` for the versioned
-worker request/result contract. Add `global.json` to pin the SDK.
+**Once the database exists** (blocker 1): apply `InitialSchema`, then build the first vertical
+slice of the customer journey — registration with email verification (local capture adapter,
+clearly labelled), automatic personal-workspace creation, login, and a dashboard that lists the
+signed-in user's own workspace and nothing else. That slice is what the first cross-tenant
+authorization test will target.
+
+Then: private upload with content-based validation (SR-SEC-1), persisted job before scheduling
+(SR-JOB-1), worker picks it up under a lease, real extraction through the existing engine, result
+preview, authorized download.
 
 **Decision-independent work that can proceed in parallel** (in priority order):
 

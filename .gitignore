@@ -23,3 +23,11 @@ publish/
 # OS/editor noise
 .DS_Store
 Thumbs.db
+
+# EF Core design-time artifacts and local tool state
+*.received.*
+
+# Local user secrets are stored outside the repo by dotnet user-secrets, but
+# guard against anyone hand-creating one here (SEC-003).
+secrets.json
+appsettings.Local.json
