@@ -12,4 +12,8 @@
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\AI.Document.Converter.Domain\AI.Document.Converter.Domain.csproj" />
+  </ItemGroup>
+
 </Project>

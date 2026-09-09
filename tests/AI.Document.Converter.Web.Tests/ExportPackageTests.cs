@@ -42,7 +42,8 @@ public sealed class ExportPackageTests : IDisposable
             NullLogger<ExportPackageBuilder>.Instance);
 
     private sealed record ItemSpec(
-        string FileName, JobStatus Status, bool WithArtifact, bool WithErrorWarning, bool PurgeBytes = false);
+        string FileName, JobStatus Status, bool WithArtifact, bool WithErrorWarning,
+        bool PurgeBytes = false, int ChunkCount = 0);
 
     private async Task<(Guid WorkspaceId, Guid JobId)> SeedAsync(
         ConverterDbContext db, JobStatus jobStatus, params ItemSpec[] specs)
@@ -116,6 +117,44 @@ public sealed class ExportPackageTests : IDisposable
                     SizeBytes = 20,
                     CreatedAtUtc = nowUtc,
                     BytesDeletedAtUtc = spec.PurgeBytes ? nowUtc : null
+                });
+            }
+
+            if (spec.ChunkCount > 0)
+            {
+                var chunkArtifactId = Guid.NewGuid();
+                var chunkKey = StorageKeys.ForArtifact(workspaceId, chunkArtifactId);
+
+                var chunkSet = new
+                {
+                    sourceFileName = spec.FileName,
+                    chunkCount = spec.ChunkCount,
+                    chunks = Enumerable.Range(1, spec.ChunkCount).Select(i => new
+                    {
+                        sequenceNumber = i,
+                        sourceFileName = spec.FileName,
+                        tokenCount = 100,
+                        overlapTokens = 0,
+                        content = $"# heading {i}\n\nchunk body {i}\n"
+                    })
+                };
+
+                await using (var content = new MemoryStream(
+                    JsonSerializer.SerializeToUtf8Bytes(chunkSet)))
+                {
+                    await _storage.WriteAsync(chunkKey, content, CancellationToken.None);
+                }
+
+                db.Artifacts.Add(new Artifact
+                {
+                    Id = chunkArtifactId,
+                    JobItemId = itemId,
+                    WorkspaceId = workspaceId,
+                    Kind = ArtifactKind.ChunkSet,
+                    StorageKey = chunkKey,
+                    FileName = Path.GetFileNameWithoutExtension(spec.FileName) + ".chunks.json",
+                    SizeBytes = 200,
+                    CreatedAtUtc = nowUtc
                 });
             }
 
@@ -321,5 +360,51 @@ public sealed class ExportPackageTests : IDisposable
         var buffer = new MemoryStream();
         Assert.False(await Builder(db).TryWritePackageAsync(
             workspaceId, jobId, buffer, CancellationToken.None));
+    }
+
+    // FR-028: the desktop produces chunks/<name>/chunk_NNN.md, and a RAG
+    // ingestion script expects to iterate over files rather than parse a blob.
+    // The chunk set is stored as one JSON object and expanded here.
+    [Fact]
+    public async Task ChunkSetsAreExpandedIntoIndividualChunkFiles()
+    {
+        await using var db = _fixture.CreateContext();
+        var (workspaceId, jobId) = await SeedAsync(
+            db, JobStatus.Completed,
+            new ItemSpec("report.pdf", JobStatus.Completed, true, false, ChunkCount: 3));
+
+        using var archive = await BuildAsync(db, workspaceId, jobId);
+        var names = archive.Entries.Select(e => e.FullName).ToList();
+
+        Assert.Contains("chunks/report/chunk_001.md", names);
+        Assert.Contains("chunks/report/chunk_002.md", names);
+        Assert.Contains("chunks/report/chunk_003.md", names);
+
+        var manifest = ReadManifest(archive);
+        var chunkArtifact = manifest.Files.Single().Artifacts.Single(a => a.Kind == "ChunkSet");
+        Assert.Equal(3, chunkArtifact.ChunkFiles!.Count);
+    }
+
+    // chunk_10 must not sort before chunk_2. Zero padding means a plain
+    // alphabetical listing is also the correct reading order, which is how most
+    // ingestion scripts will consume the folder.
+    [Fact]
+    public async Task ChunkFileNamesAreZeroPaddedSoAlphabeticalOrderIsReadingOrder()
+    {
+        await using var db = _fixture.CreateContext();
+        var (workspaceId, jobId) = await SeedAsync(
+            db, JobStatus.Completed,
+            new ItemSpec("big.pdf", JobStatus.Completed, true, false, ChunkCount: 12));
+
+        using var archive = await BuildAsync(db, workspaceId, jobId);
+
+        var chunkNames = archive.Entries
+            .Select(e => e.FullName)
+            .Where(n => n.StartsWith("chunks/"))
+            .OrderBy(n => n, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.Equal("chunks/big/chunk_001.md", chunkNames.First());
+        Assert.Equal("chunks/big/chunk_012.md", chunkNames.Last());
     }
 }

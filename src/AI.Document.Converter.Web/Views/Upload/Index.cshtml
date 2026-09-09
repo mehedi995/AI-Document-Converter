@@ -7,8 +7,13 @@
               accept=".pdf,.docx,.xlsx,.pptx,.txt" /></p>
     <p>
         <label for="preset">Preset</label>
+        @* SaaS section 10: a small number of understandable presets. Chunk
+           sizes stay server-side behind the name. *@
         <select id="preset" name="preset">
-            <option value="default">Default — faithful extraction</option>
+            @foreach (var option in Model.Presets)
+            {
+                <option value="@option.Name">@option.DisplayName — @option.Description</option>
+            }
         </select>
     </p>
     <p>Up to @Model.MaxFiles files, @Model.MaxFileSizeMb MB each. PDF, DOCX, XLSX, PPTX, TXT.</p>

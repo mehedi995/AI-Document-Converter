@@ -102,6 +102,22 @@ public sealed class ExportPackageBuilder
                     continue;
                 }
 
+                if (artifact.Kind == ArtifactKind.ChunkSet)
+                {
+                    // Stored as one JSON object but exported as individual
+                    // files, matching the layout the desktop produces and what
+                    // a RAG ingestion script expects to iterate over.
+                    var chunkPaths = await ExpandChunkSetAsync(
+                        archive, baseName, content, cancellationToken);
+
+                    artifactEntries.Add(new ManifestArtifact(
+                        $"chunks/{baseName}/", artifact.Kind.ToString(), artifact.SizeBytes, null)
+                    {
+                        ChunkFiles = chunkPaths
+                    });
+                    continue;
+                }
+
                 var entryPath = $"markdown/{baseName}.md";
                 var entry = archive.CreateEntry(entryPath, CompressionLevel.Optimal);
                 await using (var entryStream = entry.Open())
@@ -148,6 +164,41 @@ public sealed class ExportPackageBuilder
             "Built export package for job {JobId} with {FileCount} file(s)", jobId, fileEntries.Count);
 
         return true;
+    }
+
+    // Turns the stored chunk-set JSON back into chunk_001.md, chunk_002.md, ...
+    // Numbering is zero-padded so a plain alphabetical listing is also the
+    // correct reading order - chunk_10 must not sort before chunk_2.
+    private static async Task<IReadOnlyList<string>> ExpandChunkSetAsync(
+        ZipArchive archive, string baseName, Stream content, CancellationToken cancellationToken)
+    {
+        var paths = new List<string>();
+
+        ChunkSetDocument? chunkSet;
+        try
+        {
+            chunkSet = await JsonSerializer.DeserializeAsync<ChunkSetDocument>(
+                content, JsonOptions, cancellationToken);
+        }
+        catch (JsonException)
+        {
+            // A malformed chunk set must not sink the whole export - the
+            // Markdown is the primary output and is already in the package.
+            return paths;
+        }
+
+        foreach (var chunk in chunkSet?.Chunks ?? [])
+        {
+            var path = $"chunks/{baseName}/chunk_{chunk.SequenceNumber:D3}.md";
+            var entry = archive.CreateEntry(path, CompressionLevel.Optimal);
+
+            await using var stream = entry.Open();
+            await stream.WriteAsync(Encoding.UTF8.GetBytes(chunk.Content ?? string.Empty), cancellationToken);
+
+            paths.Add(path);
+        }
+
+        return paths;
     }
 
     private ExportManifest BuildManifest(ConversionJob job, List<ManifestFile> files)
@@ -275,7 +326,18 @@ public sealed class ExportPackageBuilder
     }
 }
 
-public sealed record ManifestArtifact(string? Path, string Kind, long SizeBytes, string? Unavailable);
+public sealed record ManifestArtifact(string? Path, string Kind, long SizeBytes, string? Unavailable)
+{
+    // Only populated for a chunk set, so a consumer can iterate the chunk files
+    // without globbing the archive.
+    public IReadOnlyList<string>? ChunkFiles { get; init; }
+}
+
+// The shape stored by the worker. Kept private to the export because it is a
+// storage format, not part of any published contract.
+internal sealed record ChunkSetDocument(string? SourceFileName, int ChunkCount, List<ChunkEntry>? Chunks);
+
+internal sealed record ChunkEntry(int SequenceNumber, int TokenCount, int OverlapTokens, string? Content);
 
 public sealed record ManifestWarning(
     string Code,

@@ -1,11 +1,13 @@
 using System.Text;
 using System.Text.Json;
 using AI.Document.Converter.Application.Interfaces;
+using AI.Document.Converter.Application.Models;
 using AI.Document.Converter.Domain.Entities;
 using AI.Document.Converter.Domain.Enums;
 using AI.Document.Converter.Domain.Exceptions;
 using AI.Document.Converter.Persistence;
 using AI.Document.Converter.Persistence.Entities;
+using AI.Document.Converter.Persistence.Presets;
 using AI.Document.Converter.Persistence.Storage;
 using Microsoft.EntityFrameworkCore;
 
@@ -20,6 +22,7 @@ public sealed class JobProcessor
     private readonly IObjectStorage _storage;
     private readonly IDocumentProcessorResolver _processorResolver;
     private readonly IMarkdownGenerator _markdownGenerator;
+    private readonly IChunkGenerator _chunkGenerator;
     private readonly JobClaimer _claimer;
     private readonly ILogger<JobProcessor> _logger;
 
@@ -28,6 +31,7 @@ public sealed class JobProcessor
         IObjectStorage storage,
         IDocumentProcessorResolver processorResolver,
         IMarkdownGenerator markdownGenerator,
+        IChunkGenerator chunkGenerator,
         JobClaimer claimer,
         ILogger<JobProcessor> logger)
     {
@@ -35,6 +39,7 @@ public sealed class JobProcessor
         _storage = storage;
         _processorResolver = processorResolver;
         _markdownGenerator = markdownGenerator;
+        _chunkGenerator = chunkGenerator;
         _claimer = claimer;
         _logger = logger;
     }
@@ -123,6 +128,22 @@ public sealed class JobProcessor
 
             var markdown = _markdownGenerator.Generate(extracted);
 
+            // Chunked from the SAME DocumentModel the Markdown came from, in
+            // the same pass. The desktop re-extracts for chunking (audit D-05),
+            // which doubles the engine cost per document - unacceptable when
+            // that compute is metered.
+            var preset = ConversionPresets.Resolve(item.Job?.PresetName);
+            ChunkGenerationResult? chunkResult = null;
+
+            if (preset.GenerateChunks)
+            {
+                chunkResult = await _chunkGenerator.GenerateChunksAsync(
+                    extracted,
+                    preset.ToChunkOptions(),
+                    document.OriginalFileName,
+                    cancellationToken);
+            }
+
             // Lease check BEFORE publishing. If our lease expired mid-extraction
             // another worker may already be redoing this item; publishing now
             // would produce two artifacts for one item and, later, two charges.
@@ -160,7 +181,8 @@ public sealed class JobProcessor
                 return;
             }
 
-            await PublishAsync(item, workspaceId, document, markdown, extracted, cancellationToken);
+            await PublishAsync(
+                item, workspaceId, document, markdown, chunkResult, extracted, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -198,6 +220,7 @@ public sealed class JobProcessor
         Guid workspaceId,
         SourceDocument document,
         string markdown,
+        ChunkGenerationResult? chunkResult,
         DocumentModel extracted,
         CancellationToken cancellationToken)
     {
@@ -226,7 +249,20 @@ public sealed class JobProcessor
             CreatedAtUtc = nowUtc
         });
 
-        foreach (var warning in extracted.Warnings)
+        if (chunkResult is { Chunks.Count: > 0 })
+        {
+            await PublishChunkSetAsync(item, workspaceId, document, chunkResult, nowUtc, cancellationToken);
+        }
+
+        // Extraction warnings AND chunking warnings. An oversized table is only
+        // discoverable once a chunk size is known, so it cannot come from
+        // extraction - but to the customer it is the same kind of fact about
+        // their document, and belongs in the same list.
+        var allWarnings = chunkResult is null
+            ? extracted.Warnings.AsEnumerable()
+            : extracted.Warnings.Concat(chunkResult.Warnings);
+
+        foreach (var warning in allWarnings)
         {
             _db.JobItemWarnings.Add(new JobItemWarning
             {
@@ -246,7 +282,11 @@ public sealed class JobProcessor
 
         // The distinction the whole warnings channel exists for: an incomplete
         // extraction is NOT a plain success (SR-INT-1, SR-INT-3).
-        item.Status = extracted.HasUnrecoveredContent
+        // Only Error severity means content was not recovered. An oversized
+        // table is a Warning - the table is intact, the chunk is just large -
+        // so it must NOT demote the item, or the distinction stops meaning
+        // anything.
+        item.Status = allWarnings.Any(w => w.Severity == WarningSeverity.Error)
             ? JobStatus.CompletedWithWarnings
             : JobStatus.Completed;
         item.CompletedAtUtc = nowUtc;
@@ -259,6 +299,56 @@ public sealed class JobProcessor
         _logger.LogInformation(
             "Published item {ItemId} as {Status} with {WarningCount} warning(s)",
             item.Id, item.Status, extracted.Warnings.Count);
+    }
+
+    // Chunks are stored as ONE JSON object rather than one object per chunk.
+    // A 200-page document can produce hundreds of chunks; a row and a stored
+    // object each would swamp the artifact table and the object store for no
+    // benefit. The JSON also carries FR-021's per-chunk metadata (sequence,
+    // token count, overlap) naturally, which a folder of .md files cannot.
+    // The export expands it back into individual files.
+    private async Task PublishChunkSetAsync(
+        ConversionJobItem item,
+        Guid workspaceId,
+        SourceDocument document,
+        ChunkGenerationResult chunkResult,
+        DateTime nowUtc,
+        CancellationToken cancellationToken)
+    {
+        var chunkSet = new
+        {
+            sourceFileName = document.OriginalFileName,
+            chunkCount = chunkResult.Chunks.Count,
+            chunks = chunkResult.Chunks.Select(c => new
+            {
+                sequenceNumber = c.SequenceNumber,
+                sourceFileName = c.SourceFileName,
+                tokenCount = c.TokenCount,
+                overlapTokens = c.OverlapTokens,
+                content = c.Content
+            })
+        };
+
+        var artifactId = Guid.NewGuid();
+        var storageKey = StorageKeys.ForArtifact(workspaceId, artifactId);
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(chunkSet);
+
+        await using (var content = new MemoryStream(bytes))
+        {
+            await _storage.WriteAsync(storageKey, content, cancellationToken);
+        }
+
+        _db.Artifacts.Add(new Artifact
+        {
+            Id = artifactId,
+            JobItemId = item.Id,
+            WorkspaceId = workspaceId,
+            Kind = ArtifactKind.ChunkSet,
+            StorageKey = storageKey,
+            FileName = Path.GetFileNameWithoutExtension(document.OriginalFileName) + ".chunks.json",
+            SizeBytes = bytes.LongLength,
+            CreatedAtUtc = nowUtc
+        });
     }
 
     private async Task FailAsync(

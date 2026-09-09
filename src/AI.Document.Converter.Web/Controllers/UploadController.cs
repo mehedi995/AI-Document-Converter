@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using AI.Document.Converter.Persistence.Presets;
 using AI.Document.Converter.Persistence.Retention;
 using AI.Document.Converter.Web.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -33,7 +34,8 @@ public sealed class UploadController : Controller
     private UploadPageModel BuildPageModel() => new(
         UploadValidator.MaxFileSizeBytes / (1024 * 1024),
         MaxFilesPerUpload,
-        _retentionPolicy.DescribeForCustomer());
+        _retentionPolicy.DescribeForCustomer(),
+        ConversionPresets.All.ToList());
 
     [HttpGet("")]
     public IActionResult Index() => View(BuildPageModel());
@@ -99,9 +101,14 @@ public sealed class UploadController : Controller
                 }
             }
 
+            // Resolved server-side. The form submits a NAME; chunk sizes are
+            // never accepted from the client, or anyone could ask for a
+            // one-token chunk size and turn one document into a hundred
+            // thousand chunks.
+            var resolvedPreset = ConversionPresets.Resolve(preset);
+
             var result = await _intake.AcceptAsync(
-                workspace.Id, userId, string.IsNullOrWhiteSpace(preset) ? "default" : preset,
-                intakeFiles, cancellationToken);
+                workspace.Id, userId, resolvedPreset.Name, intakeFiles, cancellationToken);
 
             TempData["IntakeSummary"] = System.Text.Json.JsonSerializer.Serialize(result.Files);
 
@@ -123,4 +130,8 @@ public sealed class UploadController : Controller
             ?? throw new InvalidOperationException("Authenticated request has no user id claim."));
 }
 
-public sealed record UploadPageModel(long MaxFileSizeMb, int MaxFiles, string RetentionNotice);
+public sealed record UploadPageModel(
+    long MaxFileSizeMb,
+    int MaxFiles,
+    string RetentionNotice,
+    IReadOnlyList<ConversionPreset> Presets);

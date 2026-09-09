@@ -72,6 +72,8 @@ builder.Services.AddSingleton<IDocumentProcessor, PowerPointDocumentProcessor>()
 builder.Services.AddSingleton<IDocumentProcessor, TextDocumentProcessor>();
 builder.Services.AddSingleton<IDocumentProcessorResolver, DocumentProcessorResolver>();
 builder.Services.AddSingleton<IMarkdownGenerator, MarkdownGenerator>();
+builder.Services.AddSingleton<ITokenCounter, TokenCounter>();
+builder.Services.AddSingleton<IChunkGenerator, ChunkGenerator>();
 
 builder.Services.Configure<RetentionPolicy>(builder.Configuration.GetSection("Retention"));
 builder.Services.AddScoped<RetentionService>();

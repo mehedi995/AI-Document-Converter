@@ -2,8 +2,8 @@
 
 **Last updated:** 2026-09-08
 **Baseline commit:** `d27e8a9` (desktop v1.0.0)
-**Current phase:** Phase 1 substantially complete - register, upload, convert, view, download,
-export, cancel, retry, retention. **Batch progress and chunk export are not built.**
+**Current phase:** **Phase 1's documented output contract is complete** - Markdown, chunks,
+metadata, manifest, export. **Batch progress is not built.**
 
 > Scope note: the cloud SaaS edition is authorized and supersedes the desktop-only /
 > no-server / no-auth / no-database constraints **for the cloud edition only**. The desktop
@@ -657,6 +657,48 @@ absence of warnings **"is not a guarantee that the parser recovered every fact f
 
 ---
 
+### Phase 1 - chunks in the SaaS pipeline (increment 14)
+
+The last piece of the documented output contract. `ChunkGenerator` was already correct and tested
+(structure-aware, never splits a table, warns on oversized ones) but nothing called it, so no
+chunks reached the export.
+
+| Added | Purpose |
+|---|---|
+| `ConversionPresets` | Named, server-side presets |
+| Worker chunk generation | From the same extraction as the Markdown |
+| `ChunkSet` artifact | One JSON object per document |
+| Export expansion | `chunks/<name>/chunk_NNN.md` |
+| Preset + chunk export tests | 8 tests |
+
+**Chunk sizes never come from the client.** The form submits a preset *name*; the server decides
+the numbers. A client-supplied chunk size would let anyone request a one-token size and turn a
+single document into a hundred thousand chunks. An unknown name falls back to the default rather
+than failing, because a stale bookmark should not cost someone their upload.
+
+**Chunked from the same `DocumentModel` as the Markdown, in one pass.** The desktop re-extracts for
+chunking (audit D-05), doubling the engine cost per document - unacceptable when that compute is
+metered. This closes D-05 for the SaaS path.
+
+**Stored as one JSON object, exported as individual files.** A 200-page document can produce
+hundreds of chunks; a row and a stored object each would swamp both the artifact table and the
+object store. The JSON also carries FR-021's per-chunk metadata (sequence, token count, overlap),
+which a folder of `.md` files cannot. The export expands it into the `chunks/<name>/chunk_NNN.md`
+layout an ingestion script expects, zero-padded so alphabetical order is reading order.
+
+**Severity handling was subtle enough to get wrong:** chunk warnings join extraction warnings in
+one list, but only **Error** severity demotes an item to `CompletedWithWarnings`. An oversized
+table is a `Warning` - the table is intact, the chunk is merely large - so it must not demote the
+item, or the distinction stops meaning anything.
+
+**Verified end to end:** worker produced Markdown + ChunkSet artifacts for both samples; the export
+contains `chunks/sample/chunk_001.md` and `chunks/sample-pdf/chunk_001.md`; the chunk content shows
+the heading kept with its content and the table intact (FR-019/FR-020).
+
+**230 passed, 0 failed** (121 unit + 64 web + 45 integration). Build clean.
+
+---
+
 ## 2. Not started
 
 Phases 1–4 in full: web host, identity/workspaces, upload, persisted jobs and durable queue, results
@@ -694,13 +736,12 @@ Verified against source and executed runs, these documented claims do **not** ho
 
 ## 5. Next concrete task
 
-Chunk generation in the SaaS pipeline. `ChunkGenerator` is already correct and tested (structure-
-aware, never splits a table, warns on oversized ones), but the worker does not call it and no
-chunks reach the export - so the `chunks/` folder the desktop produces has no SaaS equivalent yet.
-This is the last piece of the documented output contract.
+Batch progress on the dashboard: per-file stages that reflect **real work**, not a fabricated
+percentage (SaaS §10). The job state machine already records real transitions, so this is
+surfacing what exists rather than inventing it.
 
-Then batch progress on the dashboard, and the storage/row reconciliation pass still open from
-increment 9.
+Then the storage/row reconciliation pass still open from increment 9, and Phase 2's remaining
+items (history search/filter, reconvert).
 
 **Decision-independent work that can proceed in parallel** (in priority order):
 
