@@ -2,8 +2,8 @@
 
 **Last updated:** 2026-09-08
 **Baseline commit:** `d27e8a9` (desktop v1.0.0)
-**Current phase:** Phase 1's customer journey works end to end, and the retention promise on the
-upload page is now enforced. **Cancel/retry, batch progress and export are not built.**
+**Current phase:** Phase 1's customer journey works end to end with retention, cancel and retry.
+**Batch progress and ZIP export are not built.**
 
 > Scope note: the cloud SaaS edition is authorized and supersedes the desktop-only /
 > no-server / no-auth / no-database constraints **for the cloud edition only**. The desktop
@@ -584,6 +584,45 @@ it is not written.
 
 ---
 
+### Phase 1 - cancel and retry (increment 12)
+
+| Added | Purpose |
+|---|---|
+| `JobLifecycleService` | Cancel and retry, both workspace-scoped |
+| Worker `StoppedReasonFor` | One guard covering deleted *and* cancelled |
+| Cancel/retry actions + UI | Only shown when the server would honour them |
+| `JobLifecycleTests` | 9 tests against real PostgreSQL |
+
+**Cancel (FR-037).** Queued items are flipped to `Cancelled` immediately, which is what actually
+stops them - the worker's claim query only takes `Queued` rows, so a cancelled one is never picked
+up. Items already extracting are **deliberately left to the worker**, which discards its own result
+before publishing. Reaching in from outside would race the worker's write, and killing a running
+extraction mid-write is how a half-published artifact happens (SR-JOB-3).
+
+The message says what actually happened rather than a bare "cancelled": a file already being
+converted may still finish extracting, and the user should not be surprised by that.
+
+**Retry (FR-030).** Only failed items are requeued; anything that already succeeded is untouched -
+re-running it would waste the customer's allowance and could replace a good artifact with a worse
+one if the engine changed in between. `AttemptCount` is deliberately **not** reset, because it is
+what bounds the retries. Refused for non-retryable failures (a corrupt document does not become
+readable on a second look), past the attempt limit, and for deleted jobs.
+
+**Verified against the live system:** cancelling a queued job returned 302, set the job to
+`Cancelled` with a tombstone, and flipped both items to `Cancelled`. Running the worker afterwards
+claimed **nothing** - attempt counts stayed at 0, no files appeared on disk, and the log shows no
+items processed.
+
+One thing worth recording about that check: a naive `count(*) from "Artifacts"` reported 2 and
+looked like a failure. Those were **stale rows from the earlier deletion test** (`BytesDeletedAtUtc`
+already set, 0 files on disk). The real signals - attempt counts and files on disk - were both
+zero. Worth remembering that artifact *rows* outlive their bytes by design, so a row count is not a
+measure of what exists.
+
+**213 passed, 0 failed** (121 unit + 47 web + 45 integration). Build clean.
+
+---
+
 ## 2. Not started
 
 Phases 1–4 in full: web host, identity/workspaces, upload, persisted jobs and durable queue, results
@@ -621,11 +660,12 @@ Verified against source and executed runs, these documented claims do **not** ho
 
 ## 5. Next concrete task
 
-Cancel and retry (FR-030, FR-037, SR-JOB-4): cancelling must stop unstarted items and safely end
-active ones, and retrying a failed item must not rerun the ones that already succeeded. The job
-state machine and `IsRetryable` already exist; the UI and the transitions do not.
+ZIP export (FR-027/028/046): Markdown, YAML metadata and a manifest in one package, with
+collision-safe names and an immutable run identifier. The manifest is also where omissions and
+warnings have to appear, so it is the last piece of "the customer can see what was not recovered".
 
-Then batch progress, ZIP export, and the storage/row reconciliation pass.
+Then batch progress on the dashboard, and the storage/row reconciliation pass that is still open
+from increment 9.
 
 **Decision-independent work that can proceed in parallel** (in priority order):
 

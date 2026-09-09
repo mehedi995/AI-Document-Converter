@@ -53,10 +53,10 @@ public sealed class JobProcessor
         // deletion, or one replaying it after a restore - write a brand-new
         // artifact into it. The tombstone outlives the bytes precisely so this
         // check still works after everything else is gone.
-        if (item.Job?.DeletedAtUtc is not null)
+        if (StoppedReasonFor(item.Job) is { } stoppedReason)
         {
             _logger.LogInformation(
-                "Skipping item {ItemId}: its job was deleted, so no content will be recreated", itemId);
+                "Skipping item {ItemId}: {Reason}, so no work will be done", itemId, stoppedReason);
 
             item.Status = JobStatus.Cancelled;
             item.LeaseOwner = null;
@@ -148,10 +148,15 @@ public sealed class JobProcessor
             // stops a result from landing in a job the customer already
             // believes is gone.
             await _db.Entry(item).Reference(i => i.Job).LoadAsync(cancellationToken);
-            if (item.Job?.DeletedAtUtc is not null)
+            if (StoppedReasonFor(item.Job) is { } lateReason)
             {
+                // FR-037: an item already running when the user cancels is
+                // allowed to finish extracting, but its RESULT is discarded.
+                // Killing the process mid-write is how a half-published
+                // artifact happens (SR-JOB-3); discarding a finished result
+                // costs only the work already done.
                 _logger.LogInformation(
-                    "Discarding result for item {ItemId}: its job was deleted during extraction", itemId);
+                    "Discarding result for item {ItemId}: {Reason} during extraction", itemId, lateReason);
                 return;
             }
 
@@ -176,6 +181,17 @@ public sealed class JobProcessor
             TryDeleteStagingDirectory(stagingDirectory);
         }
     }
+
+    // The two states that mean "stop, and do not produce anything". Checked
+    // both before starting and again before publishing, because extraction
+    // takes real time and either can happen while it runs.
+    private static string? StoppedReasonFor(ConversionJob? job) => job switch
+    {
+        null => null,
+        { DeletedAtUtc: not null } => "its job was deleted",
+        { CancelledAtUtc: not null } => "its job was cancelled",
+        _ => null
+    };
 
     private async Task PublishAsync(
         ConversionJobItem item,

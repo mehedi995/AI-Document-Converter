@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using AI.Document.Converter.Persistence;
 using AI.Document.Converter.Persistence.Entities;
+using AI.Document.Converter.Persistence.Jobs;
 using AI.Document.Converter.Persistence.Retention;
 using AI.Document.Converter.Persistence.Storage;
 using AI.Document.Converter.Web.Services;
@@ -23,6 +24,7 @@ public sealed class ResultsController : Controller
     private readonly IObjectStorage _storage;
     private readonly WorkspaceAccessService _workspaceAccess;
     private readonly RetentionService _retention;
+    private readonly JobLifecycleService _lifecycle;
     private readonly ILogger<ResultsController> _logger;
 
     public ResultsController(
@@ -30,12 +32,14 @@ public sealed class ResultsController : Controller
         IObjectStorage storage,
         WorkspaceAccessService workspaceAccess,
         RetentionService retention,
+        JobLifecycleService lifecycle,
         ILogger<ResultsController> logger)
     {
         _db = db;
         _storage = storage;
         _workspaceAccess = workspaceAccess;
         _retention = retention;
+        _lifecycle = lifecycle;
         _logger = logger;
     }
 
@@ -84,7 +88,21 @@ public sealed class ResultsController : Controller
                     .ToList()))
             .ToList();
 
-        return View(new ResultsViewModel(job.Id, job.Status.ToString(), job.PresetName, job.CreatedAtUtc, items));
+        return View(new ResultsViewModel(
+            job.Id,
+            job.Status.ToString(),
+            job.PresetName,
+            job.CreatedAtUtc,
+            items,
+            // Only offer actions that would actually do something. A cancel
+            // button on a finished job, or a retry button when nothing is
+            // retryable, is a promise the server will refuse.
+            CanCancel: !job.Status.IsTerminal(),
+            CanRetry: job.DeletedAtUtc is null
+                      && job.Items.Any(i => i.Status == JobStatus.Failed
+                                            && i.IsRetryable
+                                            && i.AttemptCount < JobLifecycleService.MaxAttemptsPerItem),
+            IsDeleted: job.DeletedAtUtc is not null));
     }
 
     // The rendered preview of one artifact.
@@ -152,6 +170,60 @@ public sealed class ResultsController : Controller
         // browser sniff and render user-supplied content inline is how a stored
         // file becomes stored XSS.
         return File(content, "text/markdown; charset=utf-8", artifact.FileName);
+    }
+
+    // FR-037. POST because it changes state, so CSRF validation applies.
+    [HttpPost("{jobId:guid}/cancel")]
+    public async Task<IActionResult> Cancel(Guid jobId, CancellationToken cancellationToken)
+    {
+        var workspace = await _workspaceAccess.GetDefaultWorkspaceAsync(GetUserId(), cancellationToken);
+        if (workspace is null)
+        {
+            return NotFound();
+        }
+
+        var outcome = await _lifecycle.CancelAsync(
+            workspace.Id, jobId, DateTime.UtcNow, cancellationToken);
+
+        if (!outcome.Found)
+        {
+            return NotFound();
+        }
+
+        // Says what actually happened rather than a bare "cancelled". A file
+        // already being converted may still finish extracting, and the user
+        // should not be surprised by that.
+        TempData["Message"] = outcome.ItemsAlreadyRunning > 0
+            ? $"Cancelled. {outcome.ItemsPrevented} file(s) will not start; "
+              + $"{outcome.ItemsAlreadyRunning} already being converted will stop shortly and produce no output."
+            : $"Cancelled. {outcome.ItemsPrevented} file(s) will not be converted.";
+
+        return RedirectToAction(nameof(Index), new { jobId });
+    }
+
+    // FR-030. Retries only the failed files; anything that already succeeded is
+    // left alone rather than re-run.
+    [HttpPost("{jobId:guid}/retry")]
+    public async Task<IActionResult> Retry(Guid jobId, CancellationToken cancellationToken)
+    {
+        var workspace = await _workspaceAccess.GetDefaultWorkspaceAsync(GetUserId(), cancellationToken);
+        if (workspace is null)
+        {
+            return NotFound();
+        }
+
+        var outcome = await _lifecycle.RetryFailedAsync(
+            workspace.Id, jobId, DateTime.UtcNow, cancellationToken);
+
+        if (!outcome.Found)
+        {
+            return NotFound();
+        }
+
+        TempData["Message"] = outcome.Refusal
+            ?? $"Retrying {outcome.ItemsRequeued} failed file(s). Files that already converted are untouched.";
+
+        return RedirectToAction(nameof(Index), new { jobId });
     }
 
     // Customer-initiated deletion (SR-SEC-6). POST, not GET: it is destructive,
@@ -226,7 +298,10 @@ public sealed record ResultsViewModel(
     string Status,
     string PresetName,
     DateTime CreatedAtUtc,
-    IReadOnlyList<ResultItemView> Items);
+    IReadOnlyList<ResultItemView> Items,
+    bool CanCancel,
+    bool CanRetry,
+    bool IsDeleted);
 
 public sealed record PreviewViewModel(
     Guid JobId, Guid ArtifactId, string FileName, string Content, bool Truncated);

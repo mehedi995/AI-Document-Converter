@@ -1,5 +1,6 @@
 using AI.Document.Converter.Persistence;
 using AI.Document.Converter.Persistence.Entities;
+using AI.Document.Converter.Persistence.Jobs;
 using AI.Document.Converter.Persistence.Retention;
 using AI.Document.Converter.Persistence.Storage;
 using AI.Document.Converter.Web.Services;
@@ -83,6 +84,7 @@ builder.Services.AddScoped<ConversionIntakeService>();
 // what actually happens cannot drift apart (SR-SEC-6).
 builder.Services.Configure<RetentionPolicy>(builder.Configuration.GetSection("Retention"));
 builder.Services.AddScoped<RetentionService>();
+builder.Services.AddScoped<JobLifecycleService>();
 builder.Services.AddSingleton<UploadValidator>();
 
 // Local adapter for development. Production swaps in a private object store;

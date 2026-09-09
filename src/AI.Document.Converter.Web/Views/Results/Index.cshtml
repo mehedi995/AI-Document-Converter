@@ -1,10 +1,20 @@
 @model AI.Document.Converter.Web.Controllers.ResultsViewModel
 @{ ViewData["Title"] = "Conversion results"; }
 <h1>Conversion results</h1>
+@if (TempData["Message"] is string message)
+{
+    <p class="notice">@message</p>
+}
 <p>
     Status <strong>@Model.Status</strong> · preset @Model.PresetName ·
     created @Model.CreatedAtUtc.ToString("u")
 </p>
+@if (Model.IsDeleted)
+{
+    <p class="warning-banner"><strong>These files have been deleted.</strong>
+       The record of the conversion is kept, but the files themselves are gone and cannot be
+       recovered or reconverted.</p>
+}
 @if (Model.Status == "CompletedWithWarnings")
 {
     <p class="warning-banner"><strong>Some content was not fully recovered.</strong>
@@ -60,8 +70,27 @@
         }
     </section>
 }
-<form method="post" asp-action="Delete" asp-route-jobId="@Model.JobId"
-      onsubmit="return confirm('Delete the files for this conversion? This cannot be undone.');">
-    <button type="submit">Delete these files</button>
-</form>
+@* Only the actions the server would actually honour are shown. A button
+   that leads to a refusal is worse than no button. *@
+<div class="actions">
+    @if (Model.CanCancel)
+    {
+        <form method="post" asp-action="Cancel" asp-route-jobId="@Model.JobId">
+            <button type="submit">Cancel this conversion</button>
+        </form>
+    }
+    @if (Model.CanRetry)
+    {
+        <form method="post" asp-action="Retry" asp-route-jobId="@Model.JobId">
+            <button type="submit">Retry the failed files</button>
+        </form>
+    }
+    @if (!Model.IsDeleted)
+    {
+        <form method="post" asp-action="Delete" asp-route-jobId="@Model.JobId"
+              onsubmit="return confirm('Delete the files for this conversion? This cannot be undone.');">
+            <button type="submit">Delete these files</button>
+        </form>
+    }
+</div>
 <p><a asp-controller="Dashboard" asp-action="Index">Back to dashboard</a></p>

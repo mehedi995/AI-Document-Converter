@@ -8,6 +8,7 @@ using AI.Document.Converter.Infrastructure.DocumentProcessing.PowerPoint;
 using AI.Document.Converter.Infrastructure.DocumentProcessing.Text;
 using AI.Document.Converter.Infrastructure.Python;
 using AI.Document.Converter.Persistence;
+using AI.Document.Converter.Persistence.Jobs;
 using AI.Document.Converter.Persistence.Retention;
 using AI.Document.Converter.Persistence.Storage;
 using AI.Document.Converter.Worker;
@@ -73,6 +74,7 @@ builder.Services.AddSingleton<IMarkdownGenerator, MarkdownGenerator>();
 
 builder.Services.Configure<RetentionPolicy>(builder.Configuration.GetSection("Retention"));
 builder.Services.AddScoped<RetentionService>();
+builder.Services.AddScoped<JobLifecycleService>();
 builder.Services.AddHostedService<RetentionSweepService>();
 
 builder.Services.AddScoped<JobClaimer>();
