@@ -2,8 +2,8 @@
 
 **Last updated:** 2026-09-08
 **Baseline commit:** `d27e8a9` (desktop v1.0.0)
-**Current phase:** Phase 1 in progress. Account, workspace and validated private upload work end
-to end. **No job processing and no results view yet** - nothing converts.
+**Current phase:** Phase 1 in progress. **Documents now actually convert** end to end through the
+real engine. **No results view and no download yet.**
 
 > Scope note: the cloud SaaS edition is authorized and supersedes the desktop-only /
 > no-server / no-auth / no-database constraints **for the cloud edition only**. The desktop
@@ -434,6 +434,59 @@ decompression bomb, entry-count flooding, a lying declared size, and path traver
 
 ---
 
+### Phase 1 - the worker: real conversion end to end (increment 9)
+
+Uploaded documents are now genuinely converted by the **real Python engine** - the same one the
+desktop app uses, not placeholder output.
+
+| Added | Purpose |
+|---|---|
+| `JobClaimer` | Atomic lease claim via `FOR UPDATE SKIP LOCKED` |
+| `JobProcessor` | Stage, extract, publish, roll up job status |
+| `ConversionWorkerService` | Bounded-concurrency poll loop |
+| `Worker/Program.cs` | DI, with the engine path as **server** configuration |
+
+**Verified end to end against the running system:**
+
+| Check | Result |
+|---|---|
+| `sample.docx` | `Completed`, 0 warnings |
+| `sample.pdf` | **`CompletedWithWarnings`**, 1 warning - `noExtractableText`/`error`, page 3, with details |
+| Job roll-up | `CompletedWithWarnings` - one item's warnings correctly prevent a clean-success claim |
+| Markdown output | real front matter, real `# Sample PDF Document`, real `\| Item \| Value \|` table |
+| Artifact rows vs files | 2 and 2 |
+| Staging temp files | directory empty after the run (SEC-004) |
+
+**Engine path is server configuration, never a customer setting** (audit A-04). The desktop's
+`PythonEngineClient` is reused for its tested behaviour - no shell, no arguments, deadlock-safe
+concurrent stream reads - but fed a fixed options value rather than anything a tenant influences.
+
+#### Three real bugs found by running it
+
+1. **Lease renewal invalidated its own row version.** `TryRenewLeaseAsync` updates via raw SQL,
+   bumping `xmin`, so the next `SaveChanges` on the tracked entity failed a concurrency check
+   against *this same worker's* change. Fixed by reloading after renewal.
+2. **Job roll-up had an unhandled concurrency race.** Two items finishing at once both write the
+   job row; one lost and threw. That is exactly what `ConversionJob.Version` is for - but catching
+   a conflict is only useful if it is then handled. Now reloads and re-evaluates, and treats
+   "another worker already wrote this exact status" as success rather than an error.
+3. **Front matter leaked an internal identifier.** The engine records the path it is handed, so
+   staging as `<itemId>.pdf` put a GUID in the customer's downloadable metadata instead of their
+   filename. Now staged in a per-item *directory* under the document's own (already sanitized)
+   name: the directory keeps the path unique, the filename keeps the metadata truthful.
+
+**192 passed, 0 failed.** Build clean.
+
+#### Known gap, found while testing
+
+There is **no reconciliation between stored objects and database rows**. When rows were deleted
+directly during testing, four artifact objects were left orphaned on disk with nothing referencing
+them. Retention will walk rows, so orphans created by any future failure path would never be swept.
+Not a defect in the code paths above - the intake failure path does clean up after itself - but a
+real gap for production and not yet covered.
+
+---
+
 ## 2. Not started
 
 Phases 1–4 in full: web host, identity/workspaces, upload, persisted jobs and durable queue, results
@@ -471,12 +524,12 @@ Verified against source and executed runs, these documented claims do **not** ho
 
 ## 5. Next concrete task
 
-The worker: claim a `Queued` item under a lease, run the **real** engine against the stored bytes,
-write artifacts, and publish them only once complete (SR-JOB-3). Then the results view and an
-authorized download that resolves an artifact by id **and** workspace - the cross-tenant test
-already proves why id alone is not enough.
+The results view and authorized download: show the converted Markdown, the warning panel, and the
+source/output comparison; serve artifacts through a gate that resolves by artifact id **and**
+workspace. The cross-tenant test already proves why id alone is not enough - now the download path
+has to actually obey it.
 
-Nothing converts yet. Upload accepts and stores; that is all.
+After that: retention sweeps plus an orphaned-object reconciliation pass (see the gap above).
 
 **Decision-independent work that can proceed in parallel** (in priority order):
 
