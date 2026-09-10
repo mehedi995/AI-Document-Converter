@@ -127,6 +127,98 @@ public class DocumentProcessingTests
         Assert.False(document.HasUnrecoveredContent);
     }
 
+    // SR-INT-1, the path that had no .NET coverage at all until now: summary
+    // mode was reachable from Python but not from the host, so its
+    // Error-severity warning was proven only at the Python level.
+    //
+    // This is the behaviour that caused SaaS audit C-01 when it was the SILENT
+    // default. It is still available, because previewing a huge spreadsheet is
+    // genuinely useful - but it now has to announce itself.
+    [Fact]
+    public async Task ExcelDocumentProcessor_SummaryMode_SamplesTheSheetAndSaysSoAtErrorSeverity()
+    {
+        var processor = new ExcelDocumentProcessor(_pythonEngineClient);
+
+        var document = await processor.ExtractAsync(
+            SamplePath("sample.xlsx"), ExtractionMode.Summary, CancellationToken.None);
+
+        // The 250-row sheet comes back sampled, not complete.
+        var largeTable = document.Sections[1].Blocks.OfType<TableBlock>().Single();
+        Assert.True(
+            largeTable.Rows.Count < 250,
+            $"Summary mode returned {largeTable.Rows.Count} rows; it is supposed to sample.");
+
+        var truncation = Assert.Single(
+            document.Warnings.Where(w => w.Code == WarningCode.SheetTruncated));
+
+        // Error, not Warning: this is content that was NOT recovered, and the
+        // severity is what forces the job to "completed with warnings" rather
+        // than plain success (SR-INT-1, SR-INT-3).
+        Assert.Equal(WarningSeverity.Error, truncation.Severity);
+        Assert.True(document.HasUnrecoveredContent);
+    }
+
+    // A sample must never read as a complete extraction, in the output itself
+    // and not only in the warnings channel.
+    [Fact]
+    public async Task ExcelDocumentProcessor_SummaryMode_LabelsTheOutputAsIncomplete()
+    {
+        var processor = new ExcelDocumentProcessor(_pythonEngineClient);
+
+        var document = await processor.ExtractAsync(
+            SamplePath("sample.xlsx"), ExtractionMode.Summary, CancellationToken.None);
+
+        var prose = document.Sections[1].Blocks.OfType<ParagraphBlock>()
+            .Select(block => block.Text)
+            .ToList();
+
+        Assert.Contains(prose, text => text.Contains("INCOMPLETE", StringComparison.Ordinal));
+    }
+
+    // Faithful is the default, and asking for it explicitly must not change
+    // anything - otherwise the default and the named mode could drift apart.
+    [Fact]
+    public async Task ExcelDocumentProcessor_ExplicitFaithfulMode_MatchesTheDefault()
+    {
+        var processor = new ExcelDocumentProcessor(_pythonEngineClient);
+
+        var byDefault = await processor.ExtractAsync(SamplePath("sample.xlsx"), CancellationToken.None);
+        var explicitly = await processor.ExtractAsync(
+            SamplePath("sample.xlsx"), ExtractionMode.Faithful, CancellationToken.None);
+
+        Assert.Equal(
+            byDefault.Sections[1].Blocks.OfType<TableBlock>().Single().Rows.Count,
+            explicitly.Sections[1].Blocks.OfType<TableBlock>().Single().Rows.Count);
+
+        Assert.False(explicitly.HasUnrecoveredContent);
+    }
+
+    // The engine ignores a mode it does not recognise for a format, so without
+    // a host-side guard a caller asking a PDF for a summary would get a
+    // faithful extraction labelled as a summary. Refusing is the point.
+    [Fact]
+    public async Task PdfDocumentProcessor_SummaryMode_IsRefusedRatherThanQuietlyIgnored()
+    {
+        var processor = new PdfDocumentProcessor(_pythonEngineClient);
+
+        await Assert.ThrowsAsync<NotSupportedException>(() =>
+            processor.ExtractAsync(SamplePath("sample.pdf"), ExtractionMode.Summary, CancellationToken.None));
+    }
+
+    // TextDocumentProcessor never touches the engine, so it takes the
+    // interface's default implementation. That default must refuse too.
+    [Fact]
+    public async Task TextDocumentProcessor_SummaryMode_IsRefused()
+    {
+        // Typed as the interface deliberately: a default interface method is
+        // not visible on the concrete class, and every real caller reaches
+        // processors through IDocumentProcessor from the resolver anyway.
+        IDocumentProcessor processor = new TextDocumentProcessor();
+
+        await Assert.ThrowsAsync<NotSupportedException>(() =>
+            processor.ExtractAsync(SamplePath("sample.txt"), ExtractionMode.Summary, CancellationToken.None));
+    }
+
     // Model v2 contract (SaaS audit B-04/B-06): the versions and the stable
     // block IDs must survive the Python -> JSON -> C# round trip, because
     // chunks, warnings and source highlights all anchor to them.

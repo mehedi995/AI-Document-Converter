@@ -1408,6 +1408,69 @@ dotnet build AI.Document.Converter.sln -c Release  -> Build succeeded, 0 warning
   nature; the probe script is the check, and it has to be run deliberately.
 
 
+### Increment: extraction mode plumbed through .NET (SR-INT-1)
+
+XLSX summary mode existed in the Python engine but could not be reached from .NET: the host could
+only ever obtain faithful extraction, so the Error-severity `sheetTruncated` warning was proven at
+the Python level and nowhere else. That warning is the whole reason summary mode is allowed to
+exist, and it had no test on the path a real caller would use.
+
+**What was added.** An `ExtractionMode` enum (`Faithful` default, `Summary`), a `Mode` field on
+`ExtractRequestPayload` that serialises to the `"faithful"`/`"summary"` strings the engine's
+dispatch expects, and a mode-taking overload on `IDocumentProcessor`.
+
+**Two design choices worth stating:**
+
+- The interface overload has a **default implementation that throws** for a non-faithful request,
+  rather than quietly extracting faithfully. Most formats have one mode, so most processors need no
+  change - but silently doing something other than what was asked is the exact shape of the bug
+  this whole concept exists to prevent (audit C-01).
+- `PythonBackedDocumentProcessor` declares `SupportsSummaryMode` (false by default, true only on
+  `ExcelDocumentProcessor`) and refuses otherwise. This matters because **the engine silently
+  ignores a mode it does not recognise for a format**: without a host-side guard, asking a PDF for
+  a summary would return a faithful extraction labelled as a summary.
+
+**5 integration tests**, against the real bundled engine: summary mode samples the 250-row sheet
+and raises `sheetTruncated` at **Error** severity with `HasUnrecoveredContent` true; the output
+itself is labelled INCOMPLETE, not only the warnings channel; explicit faithful matches the
+default; and both PDF and TXT refuse a summary request - the latter through the interface's default
+implementation, since `TextDocumentProcessor` never touches the engine.
+
+**Mutation-tested.** Dropping `Mode` from the payload failed 2 tests (so the mode genuinely reaches
+Python, rather than the test passing for some other reason); removing the unsupported-format guard
+failed 1.
+
+**Deliberately not exposed to customers.** The worker still calls the faithful path, and no preset
+offers summary. Whether to sell deliberately-incomplete output is a product decision, and quietly
+adding a preset would make it by accident. The capability is now reachable and tested; offering it
+is a separate call.
+
+**Commands actually run.**
+
+```
+dotnet test AI.Document.Converter.sln -c Debug --filter "Category!=Performance"
+  -> 121 unit + 206 web + 50 integration = 377 passed, 0 failed
+dotnet build AI.Document.Converter.sln -c Release  -> Build succeeded, 0 warnings, 0 errors
+```
+
+| Mutation | Result |
+|---|---|
+| `Mode` removed from the engine payload | 2 failed |
+| `SupportsSummaryMode` guard removed | 1 failed |
+
+**Limitations, stated plainly.**
+
+- **Only XLSX has more than one mode**, so `SupportsSummaryMode` is a one-member list today. It is
+  a plain virtual property rather than any kind of capability framework, and should stay that way
+  until a second format needs it.
+- A default interface method is **not visible on the concrete type** - `new TextDocumentProcessor()`
+  cannot see the overload, only `IDocumentProcessor` can. Every real caller goes through the
+  resolver, so this is fine in practice, and the test says so where it types the variable as the
+  interface.
+- Nothing exercises summary mode through the SaaS pipeline end to end, because nothing in the SaaS
+  pipeline can request it yet.
+
+
 ## 2. Not started
 
 **Superseded 2026-09-09.** This section previously read "No SaaS code exists yet beyond the
@@ -1472,16 +1535,12 @@ are already implemented and tested.
 1. **Decide what to do about the measured ratio mismatch** - a business decision, not a coding one.
    The evidence is in `docs/saas/05-CREDIT-COST-BENCHMARK.md`; the options and their trade-offs are
    set out there. Until it is decided, the constants stay as they are.
-2. **Plumb extraction mode through .NET** - add `mode` to `ExtractRequestPayload` so XLSX summary
-   mode is reachable from the host and its Error-severity `sheetTruncated` warning is covered by an
-   integration test. Today .NET can only obtain faithful extraction, which is the safe default but
-   leaves that warning path proven at the Python level only.
-3. **D-05** extract once and fan out. `GenerateChunksAsync` still re-extracts from scratch, spawning
+2. **D-05** extract once and fan out. `GenerateChunksAsync` still re-extracts from scratch, spawning
    a second engine subprocess for a file `ConvertAsync` already parsed - 2x metered compute per
    chunked conversion, which now costs the customer credits rather than just latency.
-4. **B-08** `createdDate` uses `os.path.getctime`, which on a server is upload time, not authorship
+3. **B-08** `createdDate` uses `os.path.getctime`, which on a server is upload time, not authorship
    time. Prefer embedded document metadata, else omit.
-5. Real Linux verification of the engine once a container runtime exists (A-03 follow-up). The
+4. Real Linux verification of the engine once a container runtime exists (A-03 follow-up). The
    platform guard is proven only by simulation on Windows so far.
 
 ### Notes for whoever picks this up

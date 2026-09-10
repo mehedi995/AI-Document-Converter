@@ -10,4 +10,10 @@ public sealed class ExcelDocumentProcessor : PythonBackedDocumentProcessor
     }
 
     protected override SupportedFileType Format => SupportedFileType.Xlsx;
+
+    // The one format with a real choice (SR-INT-1). A spreadsheet can be far
+    // larger than anything worth reading in full, so a header-plus-sample
+    // preview is genuinely useful - as long as it announces itself, which the
+    // engine's Error-severity sheetTruncated warning makes it do.
+    protected override bool SupportsSummaryMode => true;
 }
