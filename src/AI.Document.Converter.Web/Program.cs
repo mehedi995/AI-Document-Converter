@@ -209,6 +209,13 @@ return 0;
 // Exposed so the integration test host can reference this assembly.
 public partial class Program;
 
+// Top-level statements compile into an internal Program class, which
+// WebApplicationFactory cannot reach. Declaring it public here is what lets the
+// test suite boot the REAL pipeline - the same middleware order, the same
+// authorization policies - rather than a hand-assembled imitation that could
+// drift from it without anything noticing.
+public partial class Program;
+
 // Placed at the end of the file: it is a maintenance path, not part of the
 // request pipeline.
 internal static class OperatorRoleCommand

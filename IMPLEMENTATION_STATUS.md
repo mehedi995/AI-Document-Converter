@@ -1040,10 +1040,93 @@ role, enrolled in TOTP (codes computed from the shared key), and driven through 
 - The `viewConsole` and `viewAuditTrail` audit actions are defined but **not written** - only
   inspection is recorded. Logging every page view would bury the entries that matter, and the
   console reveals no documents anyway.
-- The authorization policy is proven by the **live run above**, not by an automated test. The
-  project has no `WebApplicationFactory` harness, so nothing would catch a regression in
-  `Program.cs`'s policy wiring. That is the most valuable test still missing in this area.
+- ~~The authorization policy is proven by the **live run above**, not by an automated test.~~
+  **Closed 2026-09-10** by the HTTP test harness increment below: the policy now has 11 automated
+  tests, and both of its halves were verified by mutation. Building those tests found that the role
+  requirement had no independent coverage at all.
 - MFA is implemented but **not enforced for ordinary customers**, only required for operators.
+
+
+### Increment: HTTP test harness for authorization and tenancy
+
+**What works.** The security wiring that previously had no automated coverage now has it, and every
+one of those tests has been shown to FAIL when the thing it guards is removed. A passing security
+test that has never been seen to fail is decoration, so each rule below was verified by mutation.
+
+**Why this was the top priority.** The operator authorization policy lives in `Program.cs`. No
+service-level test executes a line of it, so the only previous proof that a password-only operator
+was refused was me running the app and trying it - which says nothing about whether the wiring
+survives the next edit. That wiring is what stands between a stolen password and every tenant's
+data.
+
+**`WebAppFactory`** boots the REAL pipeline (`WebApplicationFactory<Program>`) against the fixture's
+throwaway database, overriding only the connection string. Deliberately not a rebuilt host: an
+imitation assembled in the test project would drift from `Program.cs`, and the drift would be
+invisible precisely in the security configuration that matters most. `Program` is now
+`public partial` for this reason, and the harness runs in Development because the dev-only email
+sender throws otherwise - meeting that guard rather than weakening it.
+
+Anti-forgery tokens are **scraped from the rendered forms** rather than disabled, so every POST in
+these suites exercises real CSRF validation; one test asserts a token-less POST is rejected, so the
+suite cannot silently pass with anti-forgery off. Authenticator codes are computed with a real
+RFC 6238 implementation, so the two-factor login step is driven end to end rather than mocked.
+
+**Operator authorization (11 tests).** Anonymous, ordinary user, operator without a second factor,
+operator with two-factor enabled but signed in beforehand, wrong code, the challenge reached without
+the password step, and the inspection and audit routes individually.
+
+**Mutation-tested, and it found a real hole.** Removing the MFA requirement failed 3 tests, as
+intended. Removing the **role** requirement failed **none** - every non-operator case in the suite
+also lacked a second factor, so the MFA rule was refusing them and the role rule was never
+independently exercised. A customer who happens to use two-factor is exactly who the role check must
+stop. `AUserWithTwoFactorButNoRoleIsStillRefusedTheConsole` closes it, and re-running the mutation
+now fails that test.
+
+**Tenant isolation over HTTP (12 tests).** `CrossTenantIsolationTests` already proved the queries are
+workspace-scoped; that is necessary and not sufficient, because a controller that forgot to pass the
+filter would pass every one of them while serving another tenant's artifact. These drive the real
+endpoints with a real signed-in cookie: results, preview, download, export, and the write paths
+(cancel, retry, delete, reconvert). The write tests also assert the job was **not** modified - a 404
+that still performed the action would be the worst of both. An owner control test proves the URLs
+are right, so the 404s mean refusal rather than a typo. Foreign and nonexistent jobs return the same
+status, so the response is not an oracle for which ids exist.
+
+Mutating the results controller's workspace filter failed 4 of them. Export and the write endpoints
+survived that particular mutation because they carry their own separate filters - defence in depth,
+confirmed rather than assumed.
+
+**A test bug this caught in itself:** the tenant seeder gave every tenant the same filename, so the
+"intruder cannot see the owner's filename" assertion was passing against the intruder's *own*
+document. Filenames are now unique per tenant. That is the same class of mistake as the role hole -
+a test that looks like coverage and is not.
+
+**Commands actually run.**
+
+```
+dotnet test AI.Document.Converter.sln -c Debug --filter "Category!=Performance"
+  -> 121 unit + 180 web + 45 integration = 346 passed, 0 failed
+dotnet build AI.Document.Converter.sln -c Release       -> Build succeeded, 0 warnings, 0 errors
+```
+
+Mutation runs (each reverted immediately afterwards):
+
+| Mutation | Result |
+|---|---|
+| Drop `RequireClaim(amr, mfa)` from the operator policy | 3 failed |
+| Drop `RequireRole(Operator)` from the operator policy | **0 failed** - gap found, test added |
+| Drop `RequireRole` again, after adding the missing test | 1 failed |
+| Drop the workspace filter from the results job lookup | 4 failed |
+
+**Limitations, stated plainly.**
+
+- Mutation testing here was **manual and selective**, not a tool run over the whole suite. Four
+  mutations were tried on the rules I judged most load-bearing. Other tests in the project have not
+  been checked this way, and some of them may be decoration too - the role hole is evidence that
+  this is not a hypothetical worry.
+- The harness covers authorization and tenancy. It does **not** cover the upload pipeline over HTTP
+  (multipart, size limits, content sniffing), which is still only tested at the service level.
+- These tests share the collection's PostgreSQL fixture, so they run sequentially with the rest.
+  The web suite is now ~80 seconds rather than ~25.
 
 
 ## 2. Not started
@@ -1105,11 +1188,12 @@ are already implemented and tested.
 
 **Next, without needing that decision** (priority order):
 
-1. **A `WebApplicationFactory` test harness.** The operator authorization policy, the two-factor
-   login step and the tenant-scoped controllers are all currently proven by manual runs against a
-   live instance. Nothing automated would catch a regression in `Program.cs` policy wiring - and
-   that wiring is now what stands between a stolen password and every tenant's data.
-2. **Audit role grants** and add recovery codes (see the operator-console limitations above).
+1. **Audit role grants** and add recovery codes (see the operator-console limitations above).
+   Granting the Operator role currently leaves no tamper-evident record, and an operator who loses
+   their authenticator needs someone with database access to recover.
+2. **Extend the HTTP harness to the upload pipeline** - multipart handling, the size and count
+   limits, and content-based validation are still only tested at the service level, so nothing
+   catches a regression in the `RequestSizeLimit` or form-binding configuration.
 3. **Cost-test the credit ratios** against measured processing time and storage, so a price can
    eventually be set from evidence rather than from the illustrative figures in the blueprint.
 4. **Plumb extraction mode through .NET** - add `mode` to `ExtractRequestPayload` so XLSX summary
