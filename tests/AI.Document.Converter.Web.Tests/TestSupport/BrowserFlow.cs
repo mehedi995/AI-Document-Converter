@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 
@@ -33,6 +34,46 @@ public static partial class BrowserFlow
         fields["__RequestVerificationToken"] = await GetAntiforgeryTokenAsync(client, path);
 
         return await client.PostAsync(path, new FormUrlEncodedContent(fields));
+    }
+
+    // A real multipart/form-data post, the way a browser sends an upload.
+    //
+    // Worth doing properly rather than shortcutting to the service: the file
+    // limits, the anti-forgery check and the model binding of List<IFormFile>
+    // all live in the pipeline, and none of them are exercised by calling the
+    // intake service directly.
+    public static async Task<HttpResponseMessage> PostFilesAsync(
+        HttpClient client,
+        string path,
+        IReadOnlyList<(string FileName, byte[] Content)> files,
+        Dictionary<string, string>? fields = null,
+        bool includeAntiforgeryToken = true)
+    {
+        var form = new MultipartFormDataContent();
+
+        if (includeAntiforgeryToken)
+        {
+            form.Add(
+                new StringContent(await GetAntiforgeryTokenAsync(client, path)),
+                "__RequestVerificationToken");
+        }
+
+        foreach (var (key, value) in fields ?? [])
+        {
+            form.Add(new StringContent(value), key);
+        }
+
+        foreach (var (fileName, content) in files)
+        {
+            var part = new ByteArrayContent(content);
+            part.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+
+            // "files" matches the action's parameter name, which is how
+            // List<IFormFile> binds.
+            form.Add(part, "files", fileName);
+        }
+
+        return await client.PostAsync(path, form);
     }
 
     // RFC 6238, which is what Identity's authenticator provider validates

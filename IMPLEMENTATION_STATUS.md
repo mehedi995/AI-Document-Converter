@@ -1186,6 +1186,64 @@ The command is exercised directly via `InternalsVisibleTo` rather than by shelli
   to be non-consuming.
 
 
+### Increment: the upload pipeline over HTTP
+
+`UploadValidatorTests` already covers the validation rules. What it could not cover is everything
+between the browser and that validator - multipart parsing, `List<IFormFile>` binding, the
+per-request file-count limit, the anti-forgery check, and the controller's own refusals. A
+regression in any of those would leave every validator test green while uploads broke, or worse,
+while an unvalidated file got through.
+
+13 tests through the real pipeline: the happy path (as a control, since a suite of refusals proves
+nothing without one), anonymous and token-less posts, zero files, more than the 25-file limit, a
+file whose content contradicts its extension, an unsupported extension, an empty file, a mixed
+batch where one bad file must not sink the good ones (BR-006), a directory-traversal filename, an
+upload beyond the credit allowance, an unknown preset, and the retention disclosure on the page
+itself (SR-SEC-6).
+
+**Mutation-tested.** Disabling the file-count limit and the content-signature check failed 3 tests
+between them. The empty-file and unsupported-extension tests correctly did *not* fail, because
+those are guarded by different checks - which is the result you want: each test is pinned to the
+rule it names rather than to validation in general.
+
+**Two weak assertions found and fixed while writing this**, both mine:
+
+- The traversal test asserted the stored filename only `if (document is not null)`, so it would
+  have passed silently had the upload been rejected outright - proving nothing about sanitisation.
+  It now asserts unconditionally that the name is exactly `passwd.pdf` and that the storage key
+  carries no traversal either.
+- The preset test only asserted the attacker's string was absent. It now asserts the resolved name
+  is positively a catalogue entry, since "not the attacker's string" would also be satisfied by
+  garbage.
+
+**Commands actually run.**
+
+```
+dotnet test AI.Document.Converter.sln -c Debug --filter "Category!=Performance"
+  -> 121 unit + 206 web + 45 integration = 372 passed, 0 failed
+dotnet build AI.Document.Converter.sln -c Release       -> Build succeeded, 0 warnings, 0 errors
+```
+
+| Mutation | Result |
+|---|---|
+| `if (files.Count > MaxFilesPerUpload)` -> `if (false)` | 2 failed |
+| Content-signature check bypassed | 1 failed |
+
+**Limitations, stated plainly.**
+
+- **The size limits are not tested over HTTP.** The per-file cap is 100 MB and `RequestSizeLimit`
+  is 2.5 GB; generating bodies that large in a test would dominate the suite's runtime for little
+  return. Both are covered at the service level (`OversizedFile_IsRejectedBeforeAnyContentIsRead`,
+  `DeclaredSizeThatDisagreesWithActualContent_IsRejected`), so what is unverified is specifically
+  that the ASP.NET Core limit is wired, not that the rule exists.
+- **Archive limits are not re-tested here.** Decompression bombs and entry-count limits have
+  service-level coverage and the same validator runs on both paths; repeating them over HTTP would
+  add runtime without adding information.
+- The anonymous-upload test accepts either a redirect or a 400, because an unauthenticated post
+  legitimately cannot obtain an anti-forgery token and either refusal is correct. It is therefore a
+  weaker assertion than the others.
+
+
 ## 2. Not started
 
 **Superseded 2026-09-09.** This section previously read "No SaaS code exists yet beyond the
@@ -1245,21 +1303,18 @@ are already implemented and tested.
 
 **Next, without needing that decision** (priority order):
 
-1. **Extend the HTTP harness to the upload pipeline** - multipart handling, the size and count
-   limits, and content-based validation are still only tested at the service level, so nothing
-   catches a regression in the `RequestSizeLimit` or form-binding configuration.
-2. **Cost-test the credit ratios** against measured processing time and storage, so a price can
+1. **Cost-test the credit ratios** against measured processing time and storage, so a price can
    eventually be set from evidence rather than from the illustrative figures in the blueprint.
-3. **Plumb extraction mode through .NET** - add `mode` to `ExtractRequestPayload` so XLSX summary
+2. **Plumb extraction mode through .NET** - add `mode` to `ExtractRequestPayload` so XLSX summary
    mode is reachable from the host and its Error-severity `sheetTruncated` warning is covered by an
    integration test. Today .NET can only obtain faithful extraction, which is the safe default but
    leaves that warning path proven at the Python level only.
-4. **D-05** extract once and fan out. `GenerateChunksAsync` still re-extracts from scratch, spawning
+3. **D-05** extract once and fan out. `GenerateChunksAsync` still re-extracts from scratch, spawning
    a second engine subprocess for a file `ConvertAsync` already parsed - 2x metered compute per
    chunked conversion, which now costs the customer credits rather than just latency.
-5. **B-08** `createdDate` uses `os.path.getctime`, which on a server is upload time, not authorship
+4. **B-08** `createdDate` uses `os.path.getctime`, which on a server is upload time, not authorship
    time. Prefer embedded document metadata, else omit.
-6. Real Linux verification of the engine once a container runtime exists (A-03 follow-up). The
+5. Real Linux verification of the engine once a container runtime exists (A-03 follow-up). The
    platform guard is proven only by simulation on Windows so far.
 
 ### Notes for whoever picks this up
