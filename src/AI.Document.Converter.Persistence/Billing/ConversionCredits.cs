@@ -28,10 +28,15 @@ public static class ConversionCredits
     // pricing - they are a documented, deterministic unit.
     //
     // COST-TESTED 2026-09-10, and they are NOT cost-proportionate: measured
-    // against the real engine, one PDF credit costs roughly 37x what one DOCX
-    // credit costs, and one XLSX credit roughly 17x. See
+    // against the real engine, one PDF credit costs roughly 28x what one DOCX
+    // credit costs, and one XLSX credit roughly 15x. See
     // docs/saas/05-CREDIT-COST-BENCHMARK.md for the method, the numbers and
     // what they do and do not settle.
+    //
+    // The PDF figure was 37x until a memory fix in the extractor cut PDF cost
+    // by 48% (docs/saas/06-PDF-MEMORY.md). Worth knowing before adjusting any
+    // ratio: part of this gap is an engineering problem, not a pricing one,
+    // and that route is not exhausted.
     //
     // Left unchanged deliberately: whether price should track cost or customer
     // value is a commercial decision that has not been made, and quietly

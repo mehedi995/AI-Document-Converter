@@ -3,6 +3,12 @@
 **Measured 2026-09-10.** Reproduce with `scripts/generate-cost-corpus.py` then
 `scripts/measure-conversion-cost.py`.
 
+> **Updated later the same day, after the PDF memory investigation
+> ([06-PDF-MEMORY.md](06-PDF-MEMORY.md)).** Two changes: a claim in the original version was
+> **wrong** and is corrected in section 4, and a one-line fix to the PDF extractor cut PDF cost by
+> 48%, which moves the headline ratio from ~37x to ~28x. The conclusion - that the ratios are not
+> cost-proportionate - is unchanged.
+
 > **This document does not set prices, and nothing in it is approved commercial terms.**
 > It measures what the credit ratios in SR-BIL-4 actually cost us to serve, so that pricing can
 > later be decided from evidence. The conclusion is that the current ratios are **not**
@@ -58,27 +64,41 @@ Two independent runs, same machine (Windows 11, the development laptop):
 | XLSX | **66.92** | **58.23** | 0.98-0.998 | ~1,140-1,430 | 10.97 | 92 |
 | PDF | **140.56** | **134.07** | 1.000 | ~920-1,030 | 2.35 | **484** |
 
-DOCX, XLSX and PDF fit cleanly and reproduce across runs. **PPTX does not fit at all** (r² 0.04 in
-one run, and a negative slope): 50 slides cost no more than 1 slide within measurement error, so
-its marginal cost is *below the noise floor* rather than known. Treat it as "≲ DOCX", not as a
-number.
+**After the PDF memory fix** (same corpus, same harness, two further runs):
+
+| format | ms per credit | r² | peak MB |
+|---|---|---|---|
+| PPTX | 2.14 / 6.37 | 0.78-0.99 | 50 |
+| DOCX | 2.58 / 2.55 | 0.997-1.000 | 55 |
+| XLSX | 37.66 / 48.29 | 0.997-1.000 | 92 |
+| PDF | **72.72 / 73.51** | 0.998-1.000 | **51.8** |
+
+Absolute milliseconds drift between sessions with machine load - DOCX reads 3.7 in one session and
+2.6 in another - so the ratios within a single run are the trustworthy comparison, not the raw
+figures across runs.
+
+DOCX, XLSX and PDF fit cleanly and reproduce across every run. **PPTX is the unreliable one**: it
+did not fit at all in the first session (r² 0.04, negative slope - 50 slides costing no more than
+1 within measurement error) and fit acceptably in later, quieter ones (2.14 and 6.37 ms per credit,
+r² 0.99 and 0.78). Its marginal cost is close enough to the noise floor that it should be read as
+"≲ DOCX" rather than as a number.
 
 ### The comparison this exists to make
 
-Anchored on DOCX, the stable cheapest measurable format:
+Anchored on DOCX, the format that measures most consistently:
 
-| one credit of | costs, relative to a DOCX credit |
-|---|---|
-| PPTX | ≲ 1 (below measurement floor) |
-| DOCX | 1 |
-| XLSX | **≈ 16-18x** |
-| PDF | **≈ 36-38x** |
+| one credit of | before the PDF fix | after the PDF fix |
+|---|---|---|
+| PPTX | ≲ 1 (below measurement floor) | ≲ 1 |
+| DOCX | 1 | 1 |
+| XLSX | ≈ 16-18x | **≈ 15-19x** |
+| PDF | ≈ 36-38x | **≈ 28x** |
 
 ## 4. Findings
 
-**1. The ratios are not cost-proportionate.** A PDF credit costs us roughly 37 times what a DOCX
-credit costs. A customer converting PDFs is paying the same per credit as one converting Word
-documents, for nearly forty times the work.
+**1. The ratios are not cost-proportionate.** A PDF credit costs us roughly **28 times** what a
+DOCX credit costs (37x before the memory fix). A customer converting PDFs is paying the same per
+credit as one converting Word documents, for nearly thirty times the work.
 
 **2. The direction is consistent: text formats are overpriced, PDF and XLSX underpriced.** If the
 intent is cost-proportional pricing, PDF pages and spreadsheet cells are the ones out of line.
@@ -88,14 +108,19 @@ of roughly **1 second of a worker slot per file**, before any content is read - 
 startup. A file that produces almost nothing still costs about a second. The minimum was a
 judgement call when it was written; it now has a number behind it.
 
-**4. Memory, not time, is likely the binding constraint for PDF.** A 100-page PDF peaks at **484
-MB**, against 48-92 MB for everything else. Worker density - how many conversions fit on a machine -
-will be set by PDF, and the 100 MB upload limit permits PDFs far larger than the 100-page fixture
-measured here.
+**4. Memory was the binding constraint for PDF - and it has since been fixed.** A 100-page PDF
+peaked at **484 MB** against 48-92 MB for everything else. Investigated in
+[06-PDF-MEMORY.md](06-PDF-MEMORY.md): the cause was `pdfplumber` retaining every page's parsed
+object graph for the document's lifetime. Releasing each page after use brought the same file to
+**51.8 MB** and cut PDF processing time by 48%.
 
-**5. PDF cost grows faster than linearly in memory.** 50 pages peaked at 264 MB, 100 pages at 484
-MB. The per-page credit therefore *undercharges* large PDFs relative to small ones, on top of
-undercharging PDFs generally.
+**~~5. PDF cost grows faster than linearly in memory.~~ This was wrong.** The original version
+claimed super-linear growth from 264 MB at 50 pages to 484 MB at 100. Net of the ~36 MB process
+baseline that is 228 → 448 MB, a factor of 1.965 - *linear*, at 4.39 MB per page with r² = 1.0000.
+The error was comparing raw peaks without subtracting the fixed baseline. The correct finding is
+that memory tracked total **text**, not pages and not file size, at roughly 2 MB per 1,000
+characters - which is worse than super-linearity in one specific way: it is not bounded by the
+upload size limit at all.
 
 **6. Storage tells a different story from time.** XLSX produces **10.97 KB of extracted model per
 credit**, against 2.35 for PDF - roughly 4.7x. Whichever cost eventually dominates the unit
@@ -117,8 +142,11 @@ rewrite the ratios to match these numbers:
 
 **A proposal, not a decision:** if cost-proportionality is chosen as the goal, the smallest change
 that closes most of the gap is to reduce what a PDF page and a spreadsheet cell buy - not to
-inflate the text allowances. Any such change **must** bump `ConversionCredits.PolicyVersion`, since
-ledger entries record the version that priced them.
+inflate the text allowances.
+
+Note that the gap already narrowed from 37x to 28x by making the product *faster* rather than by
+changing any price, and that engineering route is not exhausted. Any change to a ratio **must**
+bump `ConversionCredits.PolicyVersion`, since ledger entries record the version that priced them.
 
 ## 6. Limitations, stated plainly
 

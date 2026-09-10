@@ -1274,12 +1274,16 @@ similar-magnitude total produced zero and negative "net" times - noise presented
 
 - The **one-credit-per-file minimum is now justified by measurement**: every format shows ~1 second
   of fixed cost per file before any content is read. It was a judgement call; it now has a number.
-- **Memory, not time, is likely the binding constraint for PDF.** A 100-page PDF peaks at 484 MB
-  against 48-92 MB for everything else, and it grows faster than linearly (264 MB at 50 pages).
-  Worker density will be set by PDF, and the 100 MB upload limit permits far larger PDFs than the
-  fixture measured.
+- **Memory, not time, is the binding constraint for PDF.** A 100-page PDF peaks at 484 MB against
+  48-92 MB for everything else. (Investigated and fixed the same day - see below. The growth was
+  linear, not super-linear as first written.)
 - Storage disagrees with time about which format is expensive: XLSX produces 10.97 KB of extracted
   model per credit against PDF's 2.35. A single ratio cannot be right for both axes.
+
+**Corrected 2026-09-10:** this increment claimed PDF memory grew "faster than linearly". It does
+not - it was linear at 4.39 MB/page, and the real problem was that it tracked total text rather
+than file size. See the PDF memory increment below. The PDF cost figures here (140.6 ms/credit,
+37x DOCX) are also pre-fix; post-fix they are ~73 ms/credit and ~28x.
 
 **The ratios were deliberately left unchanged.** Whether price should track cost or customer value
 is a commercial decision nobody has made, and quietly rewriting the constants would make that
@@ -1321,6 +1325,87 @@ dotnet build AI.Document.Converter.sln -c Release  -> Build succeeded, 0 warning
   invokes the engine.
 - **No concurrency.** Single engine process on an idle machine; real worker contention is not
   modelled.
+
+
+### Increment: PDF extraction memory - investigated and fixed
+
+The cost benchmark flagged a 100-page PDF peaking at **484 MB** against 48-92 MB for every other
+format. Investigated in `docs/saas/06-PDF-MEMORY.md`.
+
+**Outcome: a one-line fix cut peak memory by 89% and processing time by 48%.**
+
+**First, a correction to my own claim.** The benchmark said PDF memory "grows faster than
+linearly", citing 264 MB at 50 pages against 484 MB at 100. That was **wrong**: I compared raw
+peaks without subtracting the ~36 MB process baseline. Net of it, growth is *exactly* linear -
+4.39 MB per page, r² = 1.0000, and doubling 50 to 100 pages multiplies memory by 1.965, not more
+than 2. The conclusion that PDF was the memory problem survived; the reason I gave for it did not.
+Both documents are corrected rather than quietly edited.
+
+**What memory is actually proportional to: text, not pages and not file size.** A thousand *empty*
+pages cost 4.8 MB; fifty pages of ordinary text cost 178 MB. The relationship is ~2 MB of memory
+per 1,000 characters, consistent to within 2% across eight fixtures.
+
+That is worse than super-linearity in one specific way: **the upload size limit did not bound it**.
+A 117 KB PDF consumed 715 MB - 2,098x the 0.34 MB of text it extracted - because PDF text
+compresses well, so a permitted 100 MB file can carry far more text than a worker has memory for.
+The validator would happily accept a file that kills the worker.
+
+**Cause.** `pdfplumber` caches each page's parsed object graph on the `Page`, and the `PDF` keeps
+every page alive for its lifetime. The extractor looped over `pdf.pages` and never released them,
+so by the last page the process held the fully parsed graph of the whole document to produce a few
+hundred KB of text.
+
+**Fix.** `page.close()` after `_extract_page` has finished with the page (it must come after -
+tables are read off the page).
+
+| | before | after |
+|---|---|---|
+| 100-page PDF, real engine | 484 MB | **51.8 MB** |
+| 500-page PDF, isolated probe | 1,788 MB | **11.3 MB** |
+| memory growth per page | 4.39 MB | **0.03 MB** |
+| PDF cost | 140.6 ms/credit | **~73 ms/credit** |
+
+Memory is now effectively flat in document size, and it got *faster* - holding a large object graph
+was costing allocator and cache pressure, not just resident memory.
+
+**Verified nothing broke:** `scripts/benchmark-pdf-tables.py` reports 54/72 cells and 4/6 exact
+shapes, identical to the documented baseline and to PyMuPDF; the full suite passes including the 45
+integration tests that drive the real bundled engine.
+
+**Knock-on effect on the credit ratios:** the PDF/DOCX gap narrows from ~37x to ~28x. Still not
+cost-proportionate, but it closed by making the product faster rather than by charging more, and
+that route is not exhausted. `docs/saas/05-CREDIT-COST-BENCHMARK.md` is updated with post-fix
+numbers.
+
+**A methodology bug in the probe, found and fixed.** The first version ran every measurement in one
+process, so after a large run the heap had already grown and a later "RSS growth above baseline"
+read zero for work that plainly allocated. Every measurement now runs in a fresh subprocess.
+
+**Commands actually run.**
+
+```
+python scripts/probe-pdf-memory.py                 -> the three experiments above
+scripts/build-python-engine.ps1                    -> rebuilt the bundled engine
+python scripts/check-licences.py                   -> PASSED
+python scripts/generate-table-benchmark.py
+python scripts/benchmark-pdf-tables.py             -> 54/72 cells, 4/6 shapes (unchanged)
+python scripts/measure-conversion-cost.py          -> run twice post-fix; PDF 72.72 / 73.51
+dotnet test AI.Document.Converter.sln -c Debug --filter "Category!=Performance"
+  -> 121 unit + 206 web + 45 integration = 372 passed, 0 failed
+dotnet build AI.Document.Converter.sln -c Release  -> Build succeeded, 0 warnings, 0 errors
+```
+
+**Limitations, stated plainly.**
+
+- **Synthetic PDFs.** Scanned pages, embedded fonts and images have different profiles; a scanned
+  PDF extracts almost no text and may behave quite differently.
+- **Nothing enforces the bound.** Memory is flat in practice now, but a single pathological page
+  could still be large. A hard worker memory cap (SR-SEC-5) remains blocked on a container runtime,
+  and that is what would make this safe rather than merely well-behaved.
+- **`page.close()` is a cache flush.** If future code reads a page after `_extract_page` returns it
+  will silently re-parse - correct but slow. The call site says so.
+- No regression test pins the memory behaviour. Asserting peak RSS in a unit test is flaky by
+  nature; the probe script is the check, and it has to be run deliberately.
 
 
 ## 2. Not started
@@ -1387,19 +1472,16 @@ are already implemented and tested.
 1. **Decide what to do about the measured ratio mismatch** - a business decision, not a coding one.
    The evidence is in `docs/saas/05-CREDIT-COST-BENCHMARK.md`; the options and their trade-offs are
    set out there. Until it is decided, the constants stay as they are.
-2. **Investigate PDF memory** - 484 MB peak for 100 pages, growing faster than linearly, against a
-   100 MB upload limit that permits much larger files. This is a worker-density and stability
-   question before it is a pricing one.
-3. **Plumb extraction mode through .NET** - add `mode` to `ExtractRequestPayload` so XLSX summary
+2. **Plumb extraction mode through .NET** - add `mode` to `ExtractRequestPayload` so XLSX summary
    mode is reachable from the host and its Error-severity `sheetTruncated` warning is covered by an
    integration test. Today .NET can only obtain faithful extraction, which is the safe default but
    leaves that warning path proven at the Python level only.
-4. **D-05** extract once and fan out. `GenerateChunksAsync` still re-extracts from scratch, spawning
+3. **D-05** extract once and fan out. `GenerateChunksAsync` still re-extracts from scratch, spawning
    a second engine subprocess for a file `ConvertAsync` already parsed - 2x metered compute per
    chunked conversion, which now costs the customer credits rather than just latency.
-5. **B-08** `createdDate` uses `os.path.getctime`, which on a server is upload time, not authorship
+4. **B-08** `createdDate` uses `os.path.getctime`, which on a server is upload time, not authorship
    time. Prefer embedded document metadata, else omit.
-6. Real Linux verification of the engine once a container runtime exists (A-03 follow-up). The
+5. Real Linux verification of the engine once a container runtime exists (A-03 follow-up). The
    platform guard is proven only by simulation on Windows so far.
 
 ### Notes for whoever picks this up

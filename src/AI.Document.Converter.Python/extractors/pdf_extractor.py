@@ -205,6 +205,21 @@ def extract(file_path):
             has_no_text, image_count, section = _extract_page(page, page_number)
             sections.append(section)
 
+            # Release the page's parsed object cache as soon as we are done
+            # with it. Without this, pdfplumber keeps every page's characters,
+            # lines and rects alive for the whole document, and memory grows
+            # with the total TEXT in the file - measured at roughly 2 MB per
+            # 1,000 characters, or 715 MB for a 117 KB PDF.
+            #
+            # That is unbounded in the way that matters: the 100 MB upload
+            # limit constrains bytes, and PDF text compresses so well that a
+            # permitted file can carry far more text than a worker has memory
+            # for. Closing here cut a 500-page document from 1,788 MB to 11 MB
+            # and ran slightly faster.
+            #
+            # Must come AFTER _extract_page, which reads tables off the page.
+            page.close()
+
             if has_no_text:
                 pages_without_text.append(page_number)
             total_images_omitted += image_count
