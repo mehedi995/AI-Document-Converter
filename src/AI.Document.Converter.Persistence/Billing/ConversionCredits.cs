@@ -24,15 +24,31 @@ public static class ConversionCredits
     // Bump when any rule below changes. Never edit a rule without bumping.
     public const string PolicyVersion = "credits-v1";
 
-    // The baselines named in SR-BIL-4 as candidates for benchmarking. They are
-    // NOT validated commercial pricing - they are a documented, deterministic
-    // unit, and must be cost-tested before anything is sold.
+    // The baselines named in SR-BIL-4. They are NOT validated commercial
+    // pricing - they are a documented, deterministic unit.
+    //
+    // COST-TESTED 2026-09-10, and they are NOT cost-proportionate: measured
+    // against the real engine, one PDF credit costs roughly 37x what one DOCX
+    // credit costs, and one XLSX credit roughly 17x. See
+    // docs/saas/05-CREDIT-COST-BENCHMARK.md for the method, the numbers and
+    // what they do and do not settle.
+    //
+    // Left unchanged deliberately: whether price should track cost or customer
+    // value is a commercial decision that has not been made, and quietly
+    // rewriting the ratios here would make that decision by accident. Any
+    // change must bump PolicyVersion, because ledger entries record the
+    // version that priced them.
     public const int ScalarValuesPerCredit = 3_000;   // DOCX, TXT
     public const int SourceCellsPerCredit = 1_000;    // XLSX, CSV
 
     // "Rounded up per nonempty file": every file that contains anything costs
     // at least one credit, so a thousand one-line files cannot be processed for
     // nothing.
+    //
+    // Measurement supports this: every format shows a fixed cost of roughly one
+    // second of a worker slot per file before any content is read, dominated by
+    // engine startup. A file that produces almost nothing still costs about a
+    // second.
     public const int MinimumCreditsPerFile = 1;
 
     // Charged per page and per slide respectively - one credit each.

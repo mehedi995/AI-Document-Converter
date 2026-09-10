@@ -1244,6 +1244,85 @@ dotnet build AI.Document.Converter.sln -c Release       -> Build succeeded, 0 wa
   weaker assertion than the others.
 
 
+### Increment: cost-testing the credit ratios
+
+`ConversionCredits` carried the note "must be cost-tested before anything is sold." It has been.
+Full method and numbers in `docs/saas/05-CREDIT-COST-BENCHMARK.md`.
+
+**The headline: the ratios are not cost-proportionate, by a wide margin.** Measured against the
+real bundled engine, one PDF credit costs roughly **37x** what one DOCX credit costs, and one XLSX
+credit roughly **17x**. A customer converting PDFs pays the same per credit as one converting Word
+documents, for nearly forty times the work.
+
+| one credit of | relative cost | r² |
+|---|---|---|
+| PPTX | ≲ 1 (below the measurement floor) | 0.04 / 0.93 |
+| DOCX | 1 | 0.996 |
+| XLSX | ~16-18x | 0.98-0.998 |
+| PDF | ~36-38x | 1.000 |
+
+Two independent runs; DOCX, XLSX and PDF reproduce (3.68/3.73, 66.9/58.2, 140.6/134.1 ms per
+credit). PPTX does **not** fit - 50 slides cost no more than 1 within measurement error - so it is
+reported as an upper bound rather than a number.
+
+**Method note that mattered.** Fixed and marginal cost are separated by linear regression across
+sizes, not by subtracting a measured startup time. Subtraction was the first approach and it
+failed: startup is ~0.7-1.0 s and drifts between runs, so subtracting it from a cheap format's
+similar-magnitude total produced zero and negative "net" times - noise presented as data.
+
+**Two other findings worth acting on:**
+
+- The **one-credit-per-file minimum is now justified by measurement**: every format shows ~1 second
+  of fixed cost per file before any content is read. It was a judgement call; it now has a number.
+- **Memory, not time, is likely the binding constraint for PDF.** A 100-page PDF peaks at 484 MB
+  against 48-92 MB for everything else, and it grows faster than linearly (264 MB at 50 pages).
+  Worker density will be set by PDF, and the 100 MB upload limit permits far larger PDFs than the
+  fixture measured.
+- Storage disagrees with time about which format is expensive: XLSX produces 10.97 KB of extracted
+  model per credit against PDF's 2.35. A single ratio cannot be right for both axes.
+
+**The ratios were deliberately left unchanged.** Whether price should track cost or customer value
+is a commercial decision nobody has made, and quietly rewriting the constants would make that
+decision by accident. The code comment now records the measured mismatch and points at the
+benchmark; any change must bump `PolicyVersion`, since ledger entries record the version that
+priced them.
+
+**A bug in my own harness, found and fixed.** The first version reported that plain text was almost
+free to process. It was timing error responses: TXT has no Python extractor at all -
+`TextDocumentProcessor` reads the file in .NET, in process - and every "measurement" was the cost
+of producing `unsupportedFile`. The harness accepted a `success: false` response as valid data. It
+now raises on any unsuccessful response, TXT is excluded from the engine benchmark with the reason
+recorded, and the numbers it produced are discarded rather than quietly corrected.
+
+**Commands actually run.**
+
+```
+python scripts/generate-cost-corpus.py     -> 27 files
+python scripts/measure-conversion-cost.py  -> run twice; fits reproduce
+python scripts/check-licences.py           -> PASSED (psutil is dev-only, BSD-3-Clause)
+dotnet test AI.Document.Converter.sln -c Debug --filter "Category!=Performance"
+  -> 121 unit + 206 web + 45 integration = 372 passed, 0 failed
+dotnet build AI.Document.Converter.sln -c Release  -> Build succeeded, 0 warnings, 0 errors
+```
+
+**Limitations, stated plainly.**
+
+- **Synthetic corpus** of generated prose. Real documents - scanned PDFs, spreadsheets with
+  formulas and merged cells, presentations with images - would cost more and could move the ratios.
+  The direction and rough magnitude are trustworthy; the exact multipliers are not.
+- **One machine, Windows, a development laptop.** Production is intended to be Linux containers.
+  These are *relative* numbers between formats; absolute costs need re-measuring on
+  production-like hardware before any price is derived.
+- **Wall time is a proxy.** Right for a worker-slot-bound service, but not CPU time, and it prices
+  neither storage nor the database.
+- **PPTX marginal cost is unmeasured**, not zero. It needs many more slides, or slides with real
+  content, to rise above the fixed cost.
+- **TXT is not benchmarked at all** - it needs a separate .NET-side measurement, since it never
+  invokes the engine.
+- **No concurrency.** Single engine process on an idle machine; real worker contention is not
+  modelled.
+
+
 ## 2. Not started
 
 **Superseded 2026-09-09.** This section previously read "No SaaS code exists yet beyond the
@@ -1257,8 +1336,10 @@ Still not started:
 
 - **Any real payment provider integration.** Blocked on approval; the boundary is ready (§1).
 - **Pilot benchmarks** against a realistic corpus. The sample corpus is small and synthetic.
-- **Cost testing of the credit ratios.** They are deterministic and documented, but no unit economics
-  work has been done, so no price can responsibly be set from them yet.
+- **Pricing itself.** The ratios have now been cost-tested (see below) and are *not*
+  cost-proportionate, but no price has been set and no decision has been made about whether price
+  should track cost or customer value. Absolute unit economics still need re-measuring on
+  production-like hardware.
 - **Team collaboration, OCR, public API, SSO, private deployment.** Not implemented, and must not be
   advertised.
 
@@ -1303,18 +1384,22 @@ are already implemented and tested.
 
 **Next, without needing that decision** (priority order):
 
-1. **Cost-test the credit ratios** against measured processing time and storage, so a price can
-   eventually be set from evidence rather than from the illustrative figures in the blueprint.
-2. **Plumb extraction mode through .NET** - add `mode` to `ExtractRequestPayload` so XLSX summary
+1. **Decide what to do about the measured ratio mismatch** - a business decision, not a coding one.
+   The evidence is in `docs/saas/05-CREDIT-COST-BENCHMARK.md`; the options and their trade-offs are
+   set out there. Until it is decided, the constants stay as they are.
+2. **Investigate PDF memory** - 484 MB peak for 100 pages, growing faster than linearly, against a
+   100 MB upload limit that permits much larger files. This is a worker-density and stability
+   question before it is a pricing one.
+3. **Plumb extraction mode through .NET** - add `mode` to `ExtractRequestPayload` so XLSX summary
    mode is reachable from the host and its Error-severity `sheetTruncated` warning is covered by an
    integration test. Today .NET can only obtain faithful extraction, which is the safe default but
    leaves that warning path proven at the Python level only.
-3. **D-05** extract once and fan out. `GenerateChunksAsync` still re-extracts from scratch, spawning
+4. **D-05** extract once and fan out. `GenerateChunksAsync` still re-extracts from scratch, spawning
    a second engine subprocess for a file `ConvertAsync` already parsed - 2x metered compute per
    chunked conversion, which now costs the customer credits rather than just latency.
-4. **B-08** `createdDate` uses `os.path.getctime`, which on a server is upload time, not authorship
+5. **B-08** `createdDate` uses `os.path.getctime`, which on a server is upload time, not authorship
    time. Prefer embedded document metadata, else omit.
-5. Real Linux verification of the engine once a container runtime exists (A-03 follow-up). The
+6. Real Linux verification of the engine once a container runtime exists (A-03 follow-up). The
    platform guard is proven only by simulation on Windows so far.
 
 ### Notes for whoever picks this up

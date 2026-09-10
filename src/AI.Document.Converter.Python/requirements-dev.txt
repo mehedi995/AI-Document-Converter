@@ -21,3 +21,9 @@
 
 pymupdf==1.28.2
 pyinstaller==6.22.2
+
+# Measurement only, for scripts/measure-conversion-cost.py: samples the engine
+# subprocess's resident memory while it runs. BSD-3-Clause. Never imported by
+# the engine and never bundled - the licence gate checks the runtime list, not
+# this file.
+psutil==7.2.2

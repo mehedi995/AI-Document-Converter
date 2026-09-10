@@ -31,3 +31,10 @@ Thumbs.db
 # guard against anyone hand-creating one here (SEC-003).
 secrets.json
 appsettings.Local.json
+
+# Cost-benchmark corpus and raw timings (scripts/generate-cost-corpus.py,
+# scripts/measure-conversion-cost.py). Regenerable, several MB, and the
+# timings are machine-specific - the conclusions live in
+# docs/saas/05-CREDIT-COST-BENCHMARK.md instead.
+artifacts/cost-corpus/
+artifacts/cost-measurements*.json
