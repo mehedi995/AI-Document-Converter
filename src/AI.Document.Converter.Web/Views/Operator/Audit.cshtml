@@ -14,6 +14,7 @@
             <th scope="col">Operator</th>
             <th scope="col">Action</th>
             <th scope="col">Job</th>
+            <th scope="col">Target account</th>
             <th scope="col">Reason</th>
             <th scope="col">From</th>
         </tr>
@@ -26,6 +27,9 @@
             <td>@entry.ActorEmail</td>
             <td>@entry.Action</td>
             <td>@(entry.TargetJobId is { } id ? id.ToString()[..8] : "—")</td>
+            @* Populated for role changes: "who did it" and "who it was done
+               to" are different questions and the trail answers both. *@
+            <td>@(entry.TargetEmail ?? "—")</td>
             @* Razor HTML-encodes by default, which matters here: the reason is
                free text an operator typed. *@
             <td>@entry.Reason</td>

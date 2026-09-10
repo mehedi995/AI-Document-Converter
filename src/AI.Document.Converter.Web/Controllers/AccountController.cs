@@ -247,6 +247,70 @@ public sealed class AccountController : Controller
         return View(model);
     }
 
+    [HttpGet("recovery-code")]
+    [AllowAnonymous]
+    public async Task<IActionResult> RecoveryCode(string? returnUrl = null)
+    {
+        if (await _signInManager.GetTwoFactorAuthenticationUserAsync() is null)
+        {
+            return RedirectToAction(nameof(Login), new { returnUrl });
+        }
+
+        ViewData["ReturnUrl"] = returnUrl;
+        return View(new RecoveryCodeViewModel());
+    }
+
+    [HttpPost("recovery-code")]
+    [AllowAnonymous]
+    public async Task<IActionResult> RecoveryCode(RecoveryCodeViewModel model, string? returnUrl = null)
+    {
+        ViewData["ReturnUrl"] = returnUrl;
+
+        var user = await _signInManager.GetTwoFactorAuthenticationUserAsync();
+
+        if (user is null)
+        {
+            return RedirectToAction(nameof(Login), new { returnUrl });
+        }
+
+        if (!ModelState.IsValid)
+        {
+            return View(model);
+        }
+
+        // Spaces only. Unlike an authenticator code, where the grouping is
+        // cosmetic, the hyphen in a recovery code is PART OF THE STORED VALUE -
+        // Identity generates "xxxxx-xxxxx" and compares what you send against
+        // it exactly. Stripping it silently rejected every valid code.
+        var code = model.Code.Replace(" ", string.Empty).Trim();
+
+        var result = await _signInManager.TwoFactorRecoveryCodeSignInAsync(code);
+
+        if (result.Succeeded)
+        {
+            // A used code is consumed by Identity, so the remaining count only
+            // falls. Logged because burning a recovery code is a notable event
+            // - it means somebody lost their authenticator, or somebody else
+            // has their codes.
+            var remaining = await _userManager.CountRecoveryCodesAsync(user);
+
+            _logger.LogWarning(
+                "User {UserId} signed in with a recovery code; {Remaining} remain", user.Id, remaining);
+
+            return RedirectToLocalOrDashboard(returnUrl);
+        }
+
+        if (result.IsLockedOut)
+        {
+            ModelState.AddModelError(
+                string.Empty, "This account is temporarily locked after too many attempts. Try again shortly.");
+            return View(model);
+        }
+
+        ModelState.AddModelError(nameof(model.Code), "That recovery code was not accepted.");
+        return View(model);
+    }
+
     [HttpPost("logout")]
     [Authorize]
     public async Task<IActionResult> Logout()

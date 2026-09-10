@@ -264,7 +264,7 @@ internal static class OperatorRoleCommand
 
         if (args.Length < 2)
         {
-            Console.Error.WriteLine($"Usage: {args[0]} <email>");
+            Console.Error.WriteLine($"Usage: {args[0]} <email> [reason]");
             return 1;
         }
 
@@ -276,6 +276,8 @@ internal static class OperatorRoleCommand
             return 1;
         }
 
+        var db = scope.ServiceProvider.GetRequiredService<ConverterDbContext>();
+
         if (args[0] == Grant)
         {
             var result = await users.AddToRoleAsync(user, role);
@@ -285,6 +287,8 @@ internal static class OperatorRoleCommand
                 Console.Error.WriteLine(string.Join("; ", result.Errors.Select(e => e.Description)));
                 return 1;
             }
+
+            await RecordAsync(db, OperatorAuditActions.GrantOperatorRole, user, args);
 
             Console.WriteLine($"Granted the {role} role to {user.Email}.");
 
@@ -302,7 +306,38 @@ internal static class OperatorRoleCommand
         }
 
         await users.RemoveFromRoleAsync(user, role);
+        await RecordAsync(db, OperatorAuditActions.RevokeOperatorRole, user, args);
+
         Console.WriteLine($"Removed the {role} role from {user.Email}.");
         return 0;
+    }
+
+    // Operator status is what makes every other entry in the audit trail
+    // possible, so becoming one has to leave a record of its own. Without this
+    // the trail showed what operators did but never how somebody became one -
+    // which is the first question an investigation asks.
+    //
+    // The actor is NOT an application user: this runs from a shell, so what can
+    // honestly be recorded is the OS identity and the machine. It is prefixed
+    // so it can never be mistaken for an account, and ActorUserId stays null
+    // rather than being filled with a placeholder.
+    private static async Task RecordAsync(
+        ConverterDbContext db, string action, ApplicationUser target, string[] args)
+    {
+        var reason = args.Length > 2 ? string.Join(' ', args[2..]).Trim() : null;
+
+        db.OperatorAuditEntries.Add(new OperatorAuditEntry
+        {
+            Id = Guid.NewGuid(),
+            ActorUserId = null,
+            ActorEmail = $"command line: {Environment.UserName}@{Environment.MachineName}",
+            Action = action,
+            TargetUserId = target.Id,
+            TargetEmail = target.Email,
+            Reason = string.IsNullOrWhiteSpace(reason) ? null : reason,
+            OccurredAtUtc = DateTime.UtcNow
+        });
+
+        await db.SaveChangesAsync();
     }
 }

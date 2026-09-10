@@ -255,11 +255,13 @@ public sealed class ConverterDbContext
             entity.Property(e => e.Action).HasMaxLength(50).IsRequired();
             entity.Property(e => e.Reason).HasMaxLength(1000);
             entity.Property(e => e.IpAddress).HasMaxLength(64);
+            entity.Property(e => e.TargetEmail).HasMaxLength(256);
 
             // Read newest-first, and filtered by who or by which job.
             entity.HasIndex(e => e.OccurredAtUtc);
             entity.HasIndex(e => e.ActorUserId);
             entity.HasIndex(e => e.TargetJobId);
+            entity.HasIndex(e => e.TargetUserId);
 
             // NO foreign key to ConversionJobs or Workspaces, deliberately. The
             // record that an operator looked at a customer's job must survive

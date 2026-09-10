@@ -1030,11 +1030,9 @@ role, enrolled in TOTP (codes computed from the shared key), and driven through 
 
 **Limitations, stated plainly.**
 
-- **Role changes are not in the operator audit trail.** `grant-operator` writes to the application
-  log and `list-operators` shows the result, but there is no tamper-evident record of who granted
-  what. This should be closed before more than one person holds the role.
-- **No recovery codes.** An operator who loses their authenticator needs someone with database
-  access to clear `TwoFactorEnabled`. Acceptable while operators are few; not at scale.
+- ~~**Role changes are not in the operator audit trail.**~~ **Closed 2026-09-10** - see the
+  role-change auditing increment below.
+- ~~**No recovery codes.**~~ **Closed 2026-09-10** - ten codes are issued at enrolment; see below.
 - **No pagination**: 50 jobs, 25 workspaces, 100 audit entries. Fine now, insufficient once the
   trail is long enough to matter.
 - The `viewConsole` and `viewAuditTrail` audit actions are defined but **not written** - only
@@ -1129,6 +1127,65 @@ Mutation runs (each reverted immediately afterwards):
   The web suite is now ~80 seconds rather than ~25.
 
 
+### Increment: role-change auditing and two-factor recovery codes
+
+Closes both stated limitations of the operator console.
+
+**Role changes are now audited.** Operator status is what makes every other entry in the trail
+possible, so becoming one leaves its own record (`grantOperatorRole` / `revokeOperatorRole`).
+Without it the log showed what operators did but never how somebody became one - the first question
+an investigation asks, and the easiest thing for an attacker with shell access to leave no trace of.
+
+`ActorUserId` is now **nullable**, because a command-line action genuinely has no application user
+behind it. The actor is recorded as `command line: user@machine` instead. Filling the id with
+`Guid.Empty` would put a lie in the audit trail, and a trail that lies about who acted is worse than
+one that admits it does not know. `TargetUserId` and `TargetEmail` were added so "who did it" and
+"who it was done to" are separately answerable, and the audit view shows both.
+
+**Recovery codes.** Ten, issued at the moment two-factor is switched on and shown once. Issuing
+them later would mean most people never come back for them, and a second factor with no way back is
+not a security control - it is a way to lose an account. Stored hashed, so `/security/recovery-codes`
+can only report how many remain; regenerating invalidates the old set; disabling two-factor destroys
+them along with the shared secret. Each code works once, and using one logs at warning level with
+the number remaining, because burning one means somebody lost their authenticator - or somebody else
+has their codes.
+
+**A real bug the tests caught.** The recovery-code sign-in stripped hyphens, copied from the
+authenticator path where the grouping is cosmetic. In a recovery code the hyphen is **part of the
+stored value** - Identity generates `xxxxx-xxxxx` and compares exactly - so every valid code was
+being silently rejected. Shipped as written, recovery would not have worked at all, and would have
+been discovered by the person least able to afford it: an operator already locked out.
+
+**Commands actually run.**
+
+```
+dotnet test AI.Document.Converter.sln -c Debug --filter "Category!=Performance"
+  -> 121 unit + 193 web + 45 integration = 359 passed, 0 failed
+dotnet build AI.Document.Converter.sln -c Release       -> Build succeeded, 0 warnings, 0 errors
+dotnet ef database update                               -> AuditRoleChanges applied to adc_dev
+```
+
+13 new tests: 7 for recovery codes (redeem, single use, wrong code, consumes exactly one, no
+password-step bypass, codes shown on enrolment, regeneration invalidates) and 6 for role auditing
+(grant recorded, revoke recorded separately, the role really changes, an optional reason is stored,
+a failed grant records nothing, and the entry appears through the same service the console renders
+from).
+
+The command is exercised directly via `InternalsVisibleTo` rather than by shelling out to
+`dotnet run` - what is under test is the audit write, not process startup.
+
+**Limitations, stated plainly.**
+
+- The trail is append-only **by construction** - no service writes an update or delete - but nothing
+  stops direct database access from editing it. Hash chaining or off-host shipping has not been
+  built.
+- An operator who loses **both** authenticator and recovery codes still needs database access. That
+  is the floor without a separate identity provider.
+- Recovery codes are not mutation-tested. The single-use property is asserted directly, which is the
+  one that matters most, but I did not verify the suite fails if Identity's redemption were changed
+  to be non-consuming.
+
+
 ## 2. Not started
 
 **Superseded 2026-09-09.** This section previously read "No SaaS code exists yet beyond the
@@ -1188,24 +1245,21 @@ are already implemented and tested.
 
 **Next, without needing that decision** (priority order):
 
-1. **Audit role grants** and add recovery codes (see the operator-console limitations above).
-   Granting the Operator role currently leaves no tamper-evident record, and an operator who loses
-   their authenticator needs someone with database access to recover.
-2. **Extend the HTTP harness to the upload pipeline** - multipart handling, the size and count
+1. **Extend the HTTP harness to the upload pipeline** - multipart handling, the size and count
    limits, and content-based validation are still only tested at the service level, so nothing
    catches a regression in the `RequestSizeLimit` or form-binding configuration.
-3. **Cost-test the credit ratios** against measured processing time and storage, so a price can
+2. **Cost-test the credit ratios** against measured processing time and storage, so a price can
    eventually be set from evidence rather than from the illustrative figures in the blueprint.
-4. **Plumb extraction mode through .NET** - add `mode` to `ExtractRequestPayload` so XLSX summary
+3. **Plumb extraction mode through .NET** - add `mode` to `ExtractRequestPayload` so XLSX summary
    mode is reachable from the host and its Error-severity `sheetTruncated` warning is covered by an
    integration test. Today .NET can only obtain faithful extraction, which is the safe default but
    leaves that warning path proven at the Python level only.
-5. **D-05** extract once and fan out. `GenerateChunksAsync` still re-extracts from scratch, spawning
+4. **D-05** extract once and fan out. `GenerateChunksAsync` still re-extracts from scratch, spawning
    a second engine subprocess for a file `ConvertAsync` already parsed - 2x metered compute per
    chunked conversion, which now costs the customer credits rather than just latency.
-6. **B-08** `createdDate` uses `os.path.getctime`, which on a server is upload time, not authorship
+5. **B-08** `createdDate` uses `os.path.getctime`, which on a server is upload time, not authorship
    time. Prefer embedded document metadata, else omit.
-7. Real Linux verification of the engine once a container runtime exists (A-03 follow-up). The
+6. Real Linux verification of the engine once a container runtime exists (A-03 follow-up). The
    platform guard is proven only by simulation on Windows so far.
 
 ### Notes for whoever picks this up

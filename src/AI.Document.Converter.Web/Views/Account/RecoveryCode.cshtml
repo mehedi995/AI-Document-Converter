@@ -1,0 +1,14 @@
+@model AI.Document.Converter.Web.Models.RecoveryCodeViewModel
+@{ ViewData["Title"] = "Use a recovery code"; }
+<h1>Use a recovery code</h1>
+<p>
+    Enter one of the recovery codes you saved when you set up two-factor authentication.
+    Each code works once.
+</p>
+<form method="post">
+    <input type="hidden" name="returnUrl" value="@ViewData["ReturnUrl"]" />
+    <div asp-validation-summary="All"></div>
+    <p><label asp-for="Code"></label><input asp-for="Code" autocomplete="one-time-code" autofocus /></p>
+    <button type="submit">Sign in</button>
+</form>
+<p><a asp-action="TwoFactorChallenge">Use your authenticator instead</a></p>

@@ -23,6 +23,10 @@ namespace AI.Document.Converter.Web.Controllers;
 [Route("security")]
 public sealed class SecurityController : Controller
 {
+    // Ten is Identity's own default and a reasonable balance: enough that
+    // losing a phone is survivable, few enough that they can be written down.
+    private const int RecoveryCodeCount = 10;
+
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly SignInManager<ApplicationUser> _signInManager;
     private readonly ILogger<SecurityController> _logger;
@@ -116,7 +120,64 @@ public sealed class SecurityController : Controller
         // two-factor sign-in. The confirmation page says as much.
         await _signInManager.RefreshSignInAsync(user);
 
-        return RedirectToAction(nameof(TwoFactor));
+        // Issued at the same moment two-factor is switched on, never later.
+        // A second factor with no way back is not a security control, it is a
+        // way to lose an account - and for an operator, recovering without
+        // these means somebody editing the database by hand.
+        return View("RecoveryCodes", await GenerateRecoveryCodesAsync(user));
+    }
+
+    [HttpGet("recovery-codes")]
+    public async Task<IActionResult> RecoveryCodes()
+    {
+        var user = await _userManager.GetUserAsync(User);
+
+        if (user is null)
+        {
+            return Challenge();
+        }
+
+        if (!await _userManager.GetTwoFactorEnabledAsync(user))
+        {
+            return RedirectToAction(nameof(TwoFactor));
+        }
+
+        // The count only. The codes themselves are stored hashed and cannot be
+        // shown again - displaying them a second time would mean we had kept
+        // them in a form somebody could steal.
+        return View(new RecoveryCodesViewModel(
+            [], await _userManager.CountRecoveryCodesAsync(user)));
+    }
+
+    [HttpPost("recovery-codes")]
+    public async Task<IActionResult> RegenerateRecoveryCodes()
+    {
+        var user = await _userManager.GetUserAsync(User);
+
+        if (user is null)
+        {
+            return Challenge();
+        }
+
+        if (!await _userManager.GetTwoFactorEnabledAsync(user))
+        {
+            return RedirectToAction(nameof(TwoFactor));
+        }
+
+        // Regenerating INVALIDATES the previous set. That is the point: it is
+        // what you do when you think the old codes were seen by someone else,
+        // and leaving them working would defeat the purpose.
+        return View("RecoveryCodes", await GenerateRecoveryCodesAsync(user));
+    }
+
+    private async Task<RecoveryCodesViewModel> GenerateRecoveryCodesAsync(ApplicationUser user)
+    {
+        var codes = await _userManager.GenerateNewTwoFactorRecoveryCodesAsync(user, RecoveryCodeCount);
+
+        _logger.LogInformation("Issued new two-factor recovery codes for user {UserId}", user.Id);
+
+        return new RecoveryCodesViewModel(
+            codes?.ToList() ?? [], await _userManager.CountRecoveryCodesAsync(user));
     }
 
     [HttpPost("two-factor/disable")]
@@ -147,8 +208,11 @@ public sealed class SecurityController : Controller
 
         // The old shared secret must not survive: leaving it in place would
         // mean re-enabling silently trusts a key that may have been captured
-        // while two-factor was off.
+        // while two-factor was off. The recovery codes go with it - a code
+        // that still signs you in after two-factor is off is a password that
+        // nobody remembers having.
         await _userManager.ResetAuthenticatorKeyAsync(user);
+        await _userManager.GenerateNewTwoFactorRecoveryCodesAsync(user, 0);
 
         _logger.LogInformation("Two-factor authentication disabled for user {UserId}", user.Id);
 

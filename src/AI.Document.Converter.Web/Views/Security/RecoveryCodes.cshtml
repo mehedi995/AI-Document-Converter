@@ -1,0 +1,40 @@
+@model AI.Document.Converter.Web.Models.RecoveryCodesViewModel
+@{ ViewData["Title"] = "Recovery codes"; }
+<h1>Recovery codes</h1>
+
+@if (Model.Codes.Count > 0)
+{
+    @* Shown exactly once. They are stored hashed, so there is no page that can
+       display them again - which is the point, but it has to be said clearly
+       here or people will close the tab expecting to come back. *@
+    <p role="alert">
+        <strong>Save these now. They will not be shown again.</strong>
+        Each code signs you in once if you lose your authenticator. Store them somewhere
+        separate from your phone &mdash; a password manager, or printed and locked away.
+    </p>
+
+    <ul>
+    @foreach (var code in Model.Codes)
+    {
+        <li><kbd>@code</kbd></li>
+    }
+    </ul>
+
+    <p class="muted">
+        Generating a new set invalidates these. Signing in with a code uses it up.
+    </p>
+}
+else
+{
+    <p>You have <strong>@Model.Remaining</strong> unused recovery code(s).</p>
+    <p class="muted">
+        The codes themselves cannot be shown again &mdash; they are stored hashed. If you no longer
+        have them, generate a new set, which invalidates the old ones.
+    </p>
+}
+
+<form method="post" asp-action="RegenerateRecoveryCodes">
+    <button type="submit" class="secondary">Generate a new set</button>
+</form>
+
+<p><a asp-action="TwoFactor">Back to two-factor settings</a></p>

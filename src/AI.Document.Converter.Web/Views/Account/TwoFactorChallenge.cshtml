@@ -14,3 +14,7 @@
     </p>
     <button type="submit">Sign in</button>
 </form>
+@* Without this link the recovery codes exist but cannot be reached by the
+   person who needs them - who, by definition, does not have their phone. *@
+<p><a asp-action="RecoveryCode" asp-route-returnUrl="@ViewData["ReturnUrl"]">
+    Lost your authenticator? Use a recovery code</a></p>

@@ -67,3 +67,19 @@ public sealed class TwoFactorEnrolmentViewModel
     [Display(Name = "Code from your authenticator app")]
     public string Code { get; set; } = string.Empty;
 }
+
+// Codes are only ever present immediately after generation. On a later visit
+// the list is empty and only the remaining count is known, because they are
+// stored hashed - showing them twice would mean keeping them in a stealable
+// form.
+public sealed record RecoveryCodesViewModel(IReadOnlyList<string> Codes, int Remaining);
+
+// The way back in when the authenticator is gone. Separate from the ordinary
+// challenge so the two cannot be confused: a recovery code is single-use and
+// burning one is a notable event, not a routine sign-in.
+public sealed class RecoveryCodeViewModel
+{
+    [Required]
+    [Display(Name = "Recovery code")]
+    public string Code { get; set; } = string.Empty;
+}

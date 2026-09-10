@@ -20,8 +20,17 @@ public sealed class OperatorAuditEntry
     // Both the id and the email as they were AT THE TIME. The id is the durable
     // link; the email is a snapshot, because an account can be renamed or
     // deleted and the record still has to name who did this.
-    public required Guid ActorUserId { get; init; }
+    //
+    // NULL for an action taken from the command line, which genuinely has no
+    // application user behind it - the actor is whoever holds shell access on
+    // the host. Writing Guid.Empty there would put a lie in the audit trail,
+    // and an audit trail that lies about who acted is worse than one that
+    // admits it does not know.
+    public Guid? ActorUserId { get; init; }
 
+    // Always populated. For a command-line action this describes the OS
+    // identity and machine instead of an account, prefixed so the two can
+    // never be confused when reading the trail.
     public required string ActorEmail { get; init; }
 
     // What was done, from a fixed vocabulary rather than free text, so the log
@@ -33,6 +42,13 @@ public sealed class OperatorAuditEntry
     public Guid? TargetJobId { get; init; }
 
     public Guid? TargetWorkspaceId { get; init; }
+
+    // The account an action was performed ON, for role changes. Distinct from
+    // the actor: "who did it" and "who it was done to" are different questions
+    // and a role grant needs both answered.
+    public Guid? TargetUserId { get; init; }
+
+    public string? TargetEmail { get; init; }
 
     // Why. Required by the service for document inspection specifically:
     // forcing a support engineer to state a reason before revealing customer

@@ -21,4 +21,11 @@
     <ProjectReference Include="..\AI.Document.Converter.Domain\AI.Document.Converter.Domain.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The operator role command is a maintenance path, not public API, but it
+         writes the audit entries that record how somebody became an operator -
+         which is exactly the kind of thing that needs a test. -->
+    <InternalsVisibleTo Include="AI.Document.Converter.Web.Tests" />
+  </ItemGroup>
+
 </Project>

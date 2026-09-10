@@ -178,4 +178,10 @@ public static class OperatorAuditActions
     public const string InspectJob = "inspectJob";
     public const string ViewConsole = "viewConsole";
     public const string ViewAuditTrail = "viewAuditTrail";
+
+    // Role changes. Recorded because operator status is what makes every other
+    // entry in this trail possible - without these, the log shows what
+    // operators did but never how somebody became one.
+    public const string GrantOperatorRole = "grantOperatorRole";
+    public const string RevokeOperatorRole = "revokeOperatorRole";
 }

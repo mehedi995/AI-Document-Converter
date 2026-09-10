@@ -101,6 +101,21 @@ dotnet run --project src/AI.Document.Converter.Web -- revoke-operator someone@ex
 `list-operators` prints each operator's two-factor state, because an operator without one cannot
 actually reach the console and that is otherwise invisible until they try.
 
+Role changes are **recorded in the audit trail** (`grantOperatorRole` / `revokeOperatorRole`).
+Operator status is what makes every other entry possible, so becoming one leaves its own record -
+otherwise the log shows what operators did but never how somebody became one, which is the first
+question an investigation asks.
+
+The actor on those entries is **not an application user**: the command runs from a shell, so what
+is honestly recordable is the OS identity and machine, stored as `command line: user@machine` with
+`ActorUserId` left null. Filling it with a placeholder id would put a lie in the audit trail.
+
+An optional reason can be appended and is stored:
+
+```bash
+dotnet run --project src/AI.Document.Converter.Web -- grant-operator someone@example.com incident 2291 - on-call cover
+```
+
 ### Two-factor enrolment
 
 `/security/two-factor`. TOTP (RFC 6238) via an authenticator app.
@@ -112,17 +127,32 @@ An operator **cannot switch their own two-factor off** while holding the role. T
 refused rather than silently removing the role - losing production administration as a side effect
 of a checkbox would be a surprising way to find out.
 
+### Recovery codes
+
+Ten are issued **at the moment two-factor is switched on**, and shown once. A second factor with no
+way back is not a security control; it is a way to lose an account. Issuing them later would mean
+most people never come back for them.
+
+They are stored hashed, so there is no page that can display them again - `/security/recovery-codes`
+shows only how many remain. Generating a new set invalidates the old one, which is the point when
+you think the old codes were seen. Turning two-factor off destroys them along with the shared
+secret.
+
+Signing in with one: the two-factor challenge page links to `/account/recovery-code`. Each code
+works once, and using one is logged at warning level with the number remaining - burning a recovery
+code means somebody lost their authenticator, or somebody else has their codes.
+
 ## 6. Limitations
 
-- **Role membership changes are not themselves audited** in the operator trail. `grant-operator`
-  logs to the application log and the change is visible in `list-operators`, but there is no
-  tamper-evident record of who granted what. This should be added before a team larger than one.
-- **Recovery codes are not implemented.** An operator who loses their authenticator needs an
-  administrator with database access to clear `TwoFactorEnabled`. Acceptable while operators are
-  few; not acceptable at scale.
 - The console has **no pagination**. It shows the most recent 50 jobs, 25 workspaces and 100 audit
   entries. Fine now, insufficient once the audit trail is long enough to matter.
 - `viewConsole` and `viewAuditTrail` exist in the audit vocabulary but **are not written**: only
   inspection is recorded. Recording every page view would bury the entries that matter in noise, and
   the console reveals no customer documents anyway. If that trade is ever revisited, the constants
   are already there.
+- The audit trail is append-only **by construction** - no service writes an update or delete - but
+  nothing stops someone with direct database access from editing it. Tamper-evidence beyond that
+  (hash chaining, or shipping entries off-host) has not been built.
+- An operator who loses **both** their authenticator and their recovery codes still needs someone
+  with database access. That is the expected floor for account recovery without a separate identity
+  provider, but it is worth knowing before it happens.
