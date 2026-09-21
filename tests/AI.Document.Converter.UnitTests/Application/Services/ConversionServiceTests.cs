@@ -170,6 +170,41 @@ public class ConversionServiceTests
             Times.Never);
     }
 
+    // A failed ConversionResult carries no OutputPath, so if the Markdown were
+    // written before chunking was attempted, a chunking failure would leave a
+    // file on disk that the result the user sees never mentions - and the batch
+    // summary would count the file as failed. Chunking can fail for real
+    // reasons: a degenerate configuration (C-09), or the token counter's engine
+    // call dying mid-document.
+    [Fact]
+    public async Task ConvertAsync_WhenChunkingFails_WritesNothingAtAll()
+    {
+        _processor
+            .Setup(p => p.ExtractAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SampleDocument);
+        _chunkGenerator
+            .Setup(g => g.GenerateChunksAsync(
+                It.IsAny<DocumentModel>(), It.IsAny<ChunkOptions>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new DocumentConversionException(
+                "Chunk overlap must be smaller than the chunk size.", ErrorCategory.ConversionFailure));
+
+        var result = await _service.ConvertAsync(
+            @"C:\Source\report.pdf", @"C:\Output", _outputPathResolver.Object,
+            new ChunkOptions { ChunkSizeTokens = 100, OverlapTokens = 100 }, CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal(ErrorCategory.ConversionFailure, result.Error);
+
+        _fileWriter.Verify(
+            w => w.WriteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _chunkFileWriter.Verify(
+            w => w.WriteAsync(
+                It.IsAny<string>(), It.IsAny<IReadOnlyList<DocumentChunk>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
     [Fact]
     public async Task ConvertAsync_HappyPath_ReturnsSuccessWithTokensAndOutputPath()
     {

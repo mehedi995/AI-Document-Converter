@@ -58,10 +58,11 @@ public sealed class ConversionService : IConversionService
             var tokens = await _tokenEstimator.EstimateAsync(plainText, markdown, cancellationToken);
 
             var outputPath = outputPathResolver.ResolveMarkdownOutputPath(filePath, outputDirectory);
-            await _markdownFileWriter.WriteAsync(outputPath, markdown, cancellationToken);
 
             if (chunkOptions is null)
             {
+                await _markdownFileWriter.WriteAsync(outputPath, markdown, cancellationToken);
+
                 return new ConversionResult
                 {
                     Success = true,
@@ -73,9 +74,18 @@ public sealed class ConversionService : IConversionService
                 };
             }
 
+            // Chunking happens BEFORE anything is written. It can fail for real
+            // reasons - a degenerate chunk configuration (C-09), or the token
+            // counter's engine call dying - and a failed ConversionResult
+            // carries no OutputPath, so writing the Markdown first would leave
+            // a file on disk that the result the user sees never mentions.
+            // Same ordering as the SaaS worker, which chunks before it
+            // publishes anything (JobProcessor.PublishAsync).
             var baseName = Path.GetFileNameWithoutExtension(filePath);
             var chunkResult = await _chunkGenerator.GenerateChunksAsync(
                 document, chunkOptions, $"{baseName}.md", cancellationToken);
+
+            await _markdownFileWriter.WriteAsync(outputPath, markdown, cancellationToken);
 
             var chunksDirectory = Path.Combine(outputDirectory, "chunks", baseName);
             await _chunkFileWriter.WriteAsync(chunksDirectory, chunkResult.Chunks, cancellationToken);

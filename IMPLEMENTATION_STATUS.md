@@ -1495,7 +1495,20 @@ into chunk options for the batch.
   `Converted | Chunked` so the batch summary is truthful, and warnings from **both** sources - an
   oversized-table warning is only discoverable once a chunk size is known.
 
-**4 unit tests.** The one that carries the increment asserts `ExtractAsync` is called `Times.Once`:
+**Nothing is written until everything that can fail has succeeded.** The first cut wrote the Markdown
+and then chunked, which a throwaway probe showed was wrong: a failed `ConversionResult` carries no
+`OutputPath`, so a chunking failure left a Markdown file on disk that the result the user sees never
+mentioned, while the batch summary counted the file as failed. Chunking fails for real reasons - a
+degenerate configuration (C-09), or the token counter's engine call dying mid-document - so this is
+not a theoretical path. Chunk generation now happens **before** either file is written, which is the
+ordering the SaaS worker already uses: `JobProcessor` chunks and only then calls `PublishAsync`.
+
+What remains is a much narrower window: the chunk **file write** can still fail after the Markdown
+file is written (a full disk, or a permission problem on the `chunks/` directory). The worker has the
+same residual in `PublishAsync`, and closing it properly would mean staging both outputs and moving
+them into place - real complexity for a desktop app, against CLAUDE.md §5. Left as-is deliberately.
+
+**5 unit tests.** The one that carries the increment asserts `ExtractAsync` is called `Times.Once`:
 a version that extracted twice would still produce both correct outputs and pass every other test in
 the file. A second test pins the separate convert-then-chunk path at **two** extractions, so the
 difference between the two paths stays visible rather than being assumed away.
@@ -1507,12 +1520,13 @@ difference between the two paths stays visible rather than being assumed away.
 | Re-extract the document before chunking in the combined path | 1 failed (`ExtractsTheDocumentExactlyOnce`) |
 | Chunking warnings dropped from the merged result | 1 failed (`ReportsBothStagesAndBothWarningSources`) |
 | `PipelineStage.Chunked` dropped from `CompletedStages` | 1 failed (same test) |
+| Markdown written before chunking instead of after (the first cut's ordering) | 1 failed (`WhenChunkingFails_WritesNothingAtAll`) |
 
 **Commands actually run.**
 
 ```
 dotnet build AI.Document.Converter.sln -c Release   -> Build succeeded, 0 warnings, 0 errors
-dotnet test tests/AI.Document.Converter.UnitTests        -> 125 passed, 0 failed
+dotnet test tests/AI.Document.Converter.UnitTests        -> 126 passed, 0 failed
 dotnet test tests/AI.Document.Converter.IntegrationTests
   --filter "Category!=Performance"                       ->  50 passed, 0 failed
 ```
@@ -1525,14 +1539,6 @@ byte level, CRLF line endings preserved.
 
 **Limitations, stated plainly.**
 
-- **A chunking failure now fails the whole conversion, after the Markdown has already been written.**
-  Verified with a throwaway probe: when the chunk generator throws - which is what `ChunkGenerator`
-  does for a degenerate `overlap >= size` config (C-09) - the combined path returns `Success = false`
-  with an empty `OutputPath`, while the Markdown file is on disk. The batch summary counts it failed
-  and nothing points the user at the file that did get produced. Pre-existing shape of `ExecuteAsync`,
-  newly reachable from conversion. **Left as a decision, not silently patched** - the sensible
-  options are to validate chunk options before doing any work, or to report `Converted` with a
-  chunking warning, and which is right is a product call.
 - **The WPF wiring is untested.** There are no ViewModel tests in this repository at all, so the
   settings flag → `ChunkOptions` mapping in `DashboardViewModel` and the checkbox binding are
   verified only by the build and by reading. The grid was checked by hand: 19 row definitions, every
@@ -1609,9 +1615,7 @@ are already implemented and tested.
 1. **Decide what to do about the measured ratio mismatch** - a business decision, not a coding one.
    The evidence is in `docs/saas/05-CREDIT-COST-BENCHMARK.md`; the options and their trade-offs are
    set out there. Until it is decided, the constants stay as they are.
-2. ~~**D-05** extract once and fan out~~ - **DONE**, see §1. One open question it raised: a chunking
-   failure now fails the whole conversion even though the Markdown was already written. Decide
-   whether to validate chunk options up front or report `Converted` with a chunking warning.
+2. ~~**D-05** extract once and fan out~~ - **DONE**, see §1.
 3. **B-08** `createdDate` uses `os.path.getctime`, which on a server is upload time, not authorship
    time. Prefer embedded document metadata, else omit.
 4. Real Linux verification of the engine once a container runtime exists (A-03 follow-up). The
