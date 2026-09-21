@@ -5,7 +5,7 @@ metadata-date handling and error categorization are implemented exactly once.
 import ctypes
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 # The Win32 file-accessibility probe below is Windows-only, and importing
 # ctypes.wintypes on Linux raises ValueError outright. This module is imported
@@ -30,11 +30,92 @@ class ExtractionError(Exception):
         self.category = category
 
 
-def file_created_date_iso(file_path):
-    # A consistent source across all four formats (filesystem creation time)
-    # rather than parsing each format's own embedded-metadata date field, which
-    # varies in availability and format (e.g., PDF's "D:YYYYMMDDHHmmSS" string).
-    return datetime.fromtimestamp(os.path.getctime(file_path), tz=timezone.utc).isoformat()
+def embedded_created_date_iso(value):
+    """The SOURCE document's own creation date, from the file's embedded
+    metadata, or None when the format does not record one (audit B-08).
+
+    Deliberately NOT the filesystem timestamp, which this used to be. On a
+    server the file is created by the upload, so os.path.getctime reports when
+    we received it - a plausible-looking wrong answer in the front matter of
+    every converted document. It is not reliable on the desktop either: copying
+    a file resets it. Omitting the field is the honest alternative, and the
+    author field already works that way (FR-013).
+
+    OOXML records dcterms:created in UTC, but the libraries disagree about
+    saying so: python-docx returns it tz-aware while openpyxl and python-pptx
+    return a naive datetime for the same value. A naive value is therefore read
+    as UTC, not as local time.
+    """
+    if not isinstance(value, datetime):
+        return None
+
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+
+    return value.astimezone(timezone.utc).isoformat()
+
+
+def pdf_created_date_iso(raw):
+    """Parses a PDF /CreationDate into the same ISO-8601 UTC string the other
+    formats produce, or None when it is absent or unparseable.
+
+    PDF 32000-1 section 7.9.4 spells the date "D:YYYYMMDDHHmmSSOHH'mm'", where
+    everything after the year is optional and O is +, - or Z. Real files do
+    truncate it, so a short value is completed from defaults rather than
+    treated as corrupt; a value that is the wrong shape yields None, because a
+    wrong date is worse here than no date.
+    """
+    if not isinstance(raw, str):
+        return None
+
+    text = raw.strip()
+    if text.startswith("D:"):
+        text = text[2:]
+
+    parts = [text[0:4], text[4:6], text[6:8], text[8:10], text[10:12], text[12:14]]
+    # The year has no default: a value that does not even start with one is not
+    # a date. Everything after it falls back to the start of the period.
+    defaults = [None, 1, 1, 0, 0, 0]
+
+    values = []
+    for part, default, width in zip(parts, defaults, [4, 2, 2, 2, 2, 2]):
+        if not part and default is not None:
+            values.append(default)
+            continue
+        if len(part) != width or not part.isdigit():
+            return None
+        values.append(int(part))
+
+    try:
+        stamp = datetime(*values, tzinfo=_pdf_utc_offset(text[14:]))
+    except ValueError:
+        # Out-of-range components, e.g. month 19 or day 31 in February.
+        return None
+
+    return stamp.astimezone(timezone.utc).isoformat()
+
+
+def _pdf_utc_offset(suffix):
+    """The trailing O HH ' mm ' of a PDF date. Absent, "Z" or malformed all
+    mean UTC - the date itself is still worth keeping when only its offset is
+    unreadable, and UTC is what an offsetless PDF date means anyway.
+    """
+    text = suffix.strip().replace("'", "")
+
+    if not text or text[0] not in "+-":
+        return timezone.utc
+
+    if not text[1:3].isdigit():
+        return timezone.utc
+
+    hours = int(text[1:3])
+    minutes = int(text[3:5]) if text[3:5].isdigit() else 0
+
+    if hours > 23 or minutes > 59:
+        return timezone.utc
+
+    offset = timedelta(hours=hours, minutes=minutes)
+    return timezone(-offset if text[0] == "-" else offset)
 
 
 def converted_date_iso():

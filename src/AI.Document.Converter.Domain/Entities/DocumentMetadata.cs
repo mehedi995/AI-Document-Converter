@@ -11,7 +11,15 @@ public sealed class DocumentMetadata
 
     public required SupportedFileType FileType { get; init; }
 
-    public required DateTime CreatedDate { get; init; }
+    // The SOURCE document's own creation date, read from its embedded metadata,
+    // or null when the format does not record one (audit B-08) - a PDF with no
+    // info dictionary, or a TXT file, which has no metadata at all. Like Author,
+    // it is omitted from front matter entirely when null.
+    //
+    // It is deliberately NOT the filesystem timestamp, which this used to be:
+    // on a server that is when the upload arrived, and even on the desktop a
+    // copied file reports when it was copied.
+    public DateTime? CreatedDate { get; init; }
 
     public required DateTime ConvertedDate { get; init; }
 

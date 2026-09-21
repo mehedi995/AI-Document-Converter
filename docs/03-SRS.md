@@ -42,7 +42,7 @@
 | ID | Requirement |
 |---|---|
 | FR-012 | The system shall generate structured Markdown output from the normalized document model, preserving headings, lists, tables, links, and page/slide/sheet references where present in the source. |
-| FR-013 | The system shall prepend YAML front-matter metadata to every generated Markdown file, including at minimum: `source`, `file_type`, `created_date`, `converted_date`, `pages` (where applicable), and `author` (where available from source metadata). |
+| FR-013 | The system shall prepend YAML front-matter metadata to every generated Markdown file, including at minimum: `source`, `file_type`, `converted_date`, `pages` (where applicable), `created_date` (where the source document records one) and `author` (where available from source metadata). **Amended 2026-09-22 (audit B-08):** `created_date` was previously unconditional and was filled from the filesystem's creation timestamp when the document recorded none. On a server that timestamp is when the upload arrived, not when anyone authored the document, so it stated a wrong authorship date in every converted file. It is now read from the source's embedded metadata and **omitted entirely when absent**, matching the rule `author` already followed. |
 
 ### Token Estimation
 

@@ -24,7 +24,7 @@ from extractors.common import (
     check_file_accessible,
     check_not_encrypted_ooxml,
     converted_date_iso,
-    file_created_date_iso,
+    embedded_created_date_iso,
     image_placeholder_block,
     normalize_optional_text,
     unextractable_text_block,
@@ -211,7 +211,7 @@ def extract(file_path):
     metadata = {
         "sourceFilePath": file_path,
         "fileType": "docx",
-        "createdDate": file_created_date_iso(file_path),
+        "createdDate": embedded_created_date_iso(core_properties.created),
         "convertedDate": converted_date_iso(),
         # No reliable layout-independent page count exists for DOCX, so the
         # field is omitted rather than invented (SaaS SR-INT / audit C-05).

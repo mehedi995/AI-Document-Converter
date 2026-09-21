@@ -52,15 +52,17 @@ public sealed class TextDocumentProcessor : IDocumentProcessor
                 ex);
         }
 
-        var fileInfo = new FileInfo(filePath);
-
         return new DocumentModel
         {
             Metadata = new DocumentMetadata
             {
                 SourceFilePath = filePath,
                 FileType = SupportedFileType.Txt,
-                CreatedDate = fileInfo.CreationTimeUtc,
+                // A plain text file carries no metadata of its own, so there is
+                // no creation date to report. The filesystem's timestamp is not
+                // a stand-in for one: on a server it is when the upload landed
+                // (audit B-08).
+                CreatedDate = null,
                 ConvertedDate = DateTime.UtcNow
             },
             Sections =

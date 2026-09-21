@@ -7,15 +7,19 @@ namespace AI.Document.Converter.UnitTests.Application.Services;
 
 public class FrontMatterBuilderTests
 {
+    private static readonly DateTime SourceCreatedDate =
+        new(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+
     private static DocumentMetadata BaseMetadata(
         int? pageCount = null,
         int? slideCount = null,
         int? sheetCount = null,
-        string? author = null) => new()
+        string? author = null,
+        bool omitCreatedDate = false) => new()
     {
         SourceFilePath = @"C:\docs\sample.pdf",
         FileType = SupportedFileType.Pdf,
-        CreatedDate = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc),
+        CreatedDate = omitCreatedDate ? null : SourceCreatedDate,
         ConvertedDate = new DateTime(2026, 1, 2, 6, 7, 8, DateTimeKind.Utc),
         PageCount = pageCount,
         SlideCount = slideCount,
@@ -24,7 +28,7 @@ public class FrontMatterBuilderTests
     };
 
     [Fact]
-    public void Build_AlwaysIncludesTheFourRequiredFields()
+    public void Build_SourceRecordsACreationDate_IncludesAllFourFields()
     {
         var result = FrontMatterBuilder.Build(BaseMetadata());
 
@@ -33,6 +37,21 @@ public class FrontMatterBuilderTests
         Assert.Contains("source: \"sample.pdf\"", result);
         Assert.Contains("file_type: pdf", result);
         Assert.Contains("created_date: 2026-01-02T03:04:05Z", result);
+        Assert.Contains("converted_date: 2026-01-02T06:07:08Z", result);
+    }
+
+    // FR-013 (amended for audit B-08): created_date is written only when the
+    // source document records one. Writing the filesystem timestamp instead
+    // would state a wrong authorship date rather than admit to having none.
+    [Fact]
+    public void Build_SourceRecordsNoCreationDate_OmitsTheFieldEntirely()
+    {
+        var result = FrontMatterBuilder.Build(BaseMetadata(omitCreatedDate: true));
+
+        Assert.DoesNotContain("created_date:", result);
+
+        // The two must not be confused for one another: converted_date is
+        // always known, because we are the ones converting.
         Assert.Contains("converted_date: 2026-01-02T06:07:08Z", result);
     }
 

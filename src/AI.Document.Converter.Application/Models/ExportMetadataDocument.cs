@@ -14,7 +14,8 @@ public sealed class ExportMetadataDocument
 
     public required string FileType { get; init; }
 
-    public required DateTime CreatedDate { get; init; }
+    // Null when the source document records no creation date (audit B-08).
+    public DateTime? CreatedDate { get; init; }
 
     public required DateTime ConvertedDate { get; init; }
 

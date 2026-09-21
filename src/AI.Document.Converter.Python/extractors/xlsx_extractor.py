@@ -31,7 +31,7 @@ from extractors.common import (
     check_file_accessible,
     check_not_encrypted_ooxml,
     converted_date_iso,
-    file_created_date_iso,
+    embedded_created_date_iso,
     normalize_optional_text,
 )
 
@@ -299,7 +299,7 @@ def extract(file_path, mode=FAITHFUL_MODE):
     metadata = {
         "sourceFilePath": file_path,
         "fileType": "xlsx",
-        "createdDate": file_created_date_iso(file_path),
+        "createdDate": embedded_created_date_iso(workbook.properties.created),
         "convertedDate": converted_date_iso(),
         "pageCount": None,
         "slideCount": None,

@@ -72,7 +72,14 @@ metadata, without data loss.
 Given any successfully converted document,
 When the Markdown output is generated,
 Then the output begins with a YAML front-matter block containing at minimum `source`,
-`file_type`, `created_date`, `converted_date`, and `pages` (where applicable).
+`file_type`, `converted_date`, and `pages` (where applicable), plus `created_date` when
+the source document records a creation date of its own.
+
+*Amended 2026-09-22 (audit B-08, FR-013):* `created_date` was previously required in every
+file and was filled from the filesystem timestamp when the document had no date of its own.
+That timestamp is when the file arrived on this machine, not when it was authored, so the
+field is now omitted rather than invented. A `.txt` file and a PDF with no info dictionary
+therefore have no `created_date`, and that is the correct output, not a defect.
 
 **AC-012** (US-012)
 Given a successfully converted document,

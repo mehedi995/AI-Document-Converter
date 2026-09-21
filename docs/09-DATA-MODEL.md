@@ -106,6 +106,12 @@ classDiagram
   front-matter field is **omitted entirely** rather than written as an empty string,
   keeping downstream RAG parsing consistent (resolves the minor ambiguity noted in
   the Requirements Quality Review).
+- `CreatedDate` is nullable for the same reason, **amended 2026-09-22 (audit B-08)**. It
+  holds the date the *source document* records in its own embedded metadata — `dcterms:created`
+  for OOXML, `/CreationDate` for PDF — and is null for a format that records none (TXT always,
+  PDF often). It was previously non-nullable and filled from `os.path.getctime`; on a server
+  that is upload time, so the field claimed an authorship date that was really a receipt date.
+  `ConvertedDate` stays non-nullable: we are the ones converting, so it is always known.
 - `PageCount`/`SlideCount`/`SheetCount` are all nullable on the same metadata type
   rather than three separate metadata classes — simpler for a mid-level developer
   than a per-format metadata hierarchy, at the cost of two always-null fields per

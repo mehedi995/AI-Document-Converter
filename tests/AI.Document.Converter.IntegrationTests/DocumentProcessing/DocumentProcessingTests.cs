@@ -412,4 +412,73 @@ public class DocumentProcessingTests
             () => resolver.Resolve(SamplePath("sample.html")));
         Assert.Equal(ErrorCategory.UnsupportedFile, exception.Category);
     }
+
+    // Audit B-08. createdDate used to be os.path.getctime - the filesystem's
+    // idea of when THIS copy of the file appeared, which on a server is when
+    // the upload landed. These tests turn on the gap between the two: every
+    // fixture in samples/ was written to disk in 2026, so an assertion that
+    // lands on the document's own 2013 date could not pass on a filesystem
+    // timestamp.
+    [Fact]
+    public async Task DocxDocumentProcessor_ReportsTheDocumentsOwnCreationDate_NotTheFilesystems()
+    {
+        var processor = new DocxDocumentProcessor(_pythonEngineClient);
+        var samplePath = SamplePath("sample.docx");
+
+        var document = await processor.ExtractAsync(samplePath, CancellationToken.None);
+
+        // python-docx returns dcterms:created already tz-aware.
+        Assert.Equal(
+            new DateTime(2013, 12, 23, 23, 15, 0, DateTimeKind.Utc),
+            document.Metadata.CreatedDate!.Value.ToUniversalTime());
+
+        // The same file's filesystem timestamps are years later, which is the
+        // whole point: the two are not interchangeable.
+        Assert.True(
+            new FileInfo(samplePath).CreationTimeUtc.Year > 2013,
+            "Fixture assumption broken: sample.docx is no longer newer on disk than its embedded date.");
+    }
+
+    // openpyxl and python-pptx hand back a NAIVE datetime for the same
+    // dcterms:created field python-docx reports as tz-aware. OOXML records it
+    // in UTC, so the engine reads a naive value as UTC rather than as the
+    // server's local time - which would shift the date by the machine's offset.
+    [Fact]
+    public async Task PowerPointDocumentProcessor_ReadsANaiveEmbeddedDateAsUtc()
+    {
+        var processor = new PowerPointDocumentProcessor(_pythonEngineClient);
+
+        var document = await processor.ExtractAsync(SamplePath("sample.pptx"), CancellationToken.None);
+
+        Assert.Equal(
+            new DateTime(2013, 1, 27, 9, 14, 16, DateTimeKind.Utc),
+            document.Metadata.CreatedDate!.Value.ToUniversalTime());
+    }
+
+    // samples/sample.pdf has no info dictionary at all - an ordinary state for
+    // a PDF, not a failure. The field is omitted rather than filled in.
+    [Fact]
+    public async Task PdfDocumentProcessor_SourceRecordsNoCreationDate_ReportsNull()
+    {
+        var processor = new PdfDocumentProcessor(_pythonEngineClient);
+
+        var document = await processor.ExtractAsync(SamplePath("sample.pdf"), CancellationToken.None);
+
+        Assert.Null(document.Metadata.CreatedDate);
+
+        var markdown = new MarkdownGenerator().Generate(document);
+        Assert.DoesNotContain("created_date:", markdown);
+        Assert.Contains("converted_date:", markdown);
+    }
+
+    // A text file carries no metadata of its own, so there is nothing to report
+    // and the filesystem is not a substitute.
+    [Fact]
+    public async Task TextDocumentProcessor_ReportsNoCreationDate()
+    {
+        var document = await new TextDocumentProcessor()
+            .ExtractAsync(SamplePath("sample.txt"), CancellationToken.None);
+
+        Assert.Null(document.Metadata.CreatedDate);
+    }
 }

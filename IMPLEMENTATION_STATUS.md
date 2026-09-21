@@ -1551,6 +1551,95 @@ byte level, CRLF line endings preserved.
   extract-once path).
 
 
+### Increment: createdDate is the document's own date, or nothing (audit B-08)
+
+`createdDate` was `os.path.getctime` - the filesystem's record of when *this copy* of the file
+appeared. On a server that is when the upload arrived, so every converted document's front matter
+carried a receipt date presented as an authorship date. It is not reliable on the desktop either:
+copying a file resets it.
+
+**What changed.** Each extractor now reads the source's own embedded metadata - `dcterms:created`
+for the three OOXML formats, `/CreationDate` for PDF - and reports **null** when the format records
+none. `DocumentMetadata.CreatedDate` became `DateTime?`, and `FrontMatterBuilder` omits the field
+entirely when it is null, which is the rule `author` has always followed.
+
+**Two things the libraries do not agree about, both handled:**
+
+- python-docx returns `dcterms:created` **tz-aware**; openpyxl and python-pptx return a **naive**
+  datetime for the same field. OOXML records it in UTC, so a naive value is read as UTC. Reading it
+  as local time instead would shift every XLSX and PPTX date by the server's offset - six hours on
+  this machine.
+- PDF spells its date `D:YYYYMMDDHHmmSSOHH'mm'` (PDF 32000-1 section 7.9.4), where everything after
+  the year is optional. A truncated value is completed from defaults rather than rejected; a
+  malformed one yields null, because a wrong date here is worse than no date. A malformed *offset*
+  on an otherwise valid date falls back to UTC rather than discarding the date.
+
+**TXT reports null**, since a text file has no metadata at all.
+
+**Verified against the real fixtures**, through the rebuilt bundled engine:
+
+| Fixture | Embedded value | Reported |
+|---|---|---|
+| `sample.docx` | `dcterms:created` 2013-12-23T23:15Z (tz-aware) | `2013-12-23T23:15:00+00:00` |
+| `sample.pptx` | 2013-01-27T09:14:16 (naive) | `2013-01-27T09:14:16+00:00` |
+| `sample.xlsx` | 2026-08-24T04:47:49 (naive) | `2026-08-24T04:47:49+00:00` |
+| `sample.pdf` | no info dictionary at all | `null`, and no `created_date` line in the output |
+
+The two 2013 dates are what make these tests worth having: every fixture in `samples/` was written
+to disk in 2026, so an assertion landing on 2013 cannot pass on a filesystem timestamp. The DOCX
+test asserts that gap explicitly.
+
+The PDF date parser was exercised directly across 16 inputs - offsets `+06'00'` and `-05'30'`, `Z`,
+no offset, the truncated forms `D:2026` / `D:202601` / `D:20260115`, an out-of-range offset, month
+19, 30 February, `D:abcd`, `D:`, empty, `None` and a non-string. Every one produced the intended
+value or null.
+
+**Requirements changed, not quietly contradicted** (CLAUDE.md section 52). `created_date` was a
+mandatory front-matter field, so this is a requirements change and is recorded as one: **FR-013**
+(`docs/03-SRS.md`), **AC-011** (`docs/06-ACCEPTANCE-CRITERIA.md`) and the `DocumentMetadata` field
+notes (`docs/09-DATA-MODEL.md`) each carry the amendment and the reason.
+
+**Mutation-tested.**
+
+| Mutation | Result |
+|---|---|
+| DOCX extractor restored to `os.path.getctime` (engine rebuilt, real integration run) | 1 failed - `ReportsTheDocumentsOwnCreationDate_NotTheFilesystems`; the other three B-08 tests correctly still passed |
+| `FrontMatterBuilder` writes `created_date` unconditionally, falling back to `converted_date` | 1 failed - `SourceRecordsNoCreationDate_OmitsTheFieldEntirely` |
+
+A third mutation - reading a naive OOXML date as local time - was demonstrated at source level
+rather than by a third engine rebuild: it turns the asserted `09:14:16Z` into `03:14:16Z` on this
+machine (+06:00), so the PPTX assertion is genuinely sensitive to that choice.
+
+**Commands actually run.**
+
+```
+scripts/build-python-engine.ps1                          -> engine rebuilt (3x: clean, mutated, clean)
+python scripts/check-licences.py                         -> PASSED, no forbidden licences or artifacts
+dotnet test tests/AI.Document.Converter.UnitTests         -> 127 passed, 0 failed
+dotnet test tests/AI.Document.Converter.IntegrationTests
+  --filter "Category!=Performance"                        ->  54 passed, 0 failed
+```
+
+**Limitations, stated plainly.**
+
+- **The full-solution build could not be completed.** `AI.Document.Converter.Web`'s output DLL is
+  locked by a running `AI.Document.Converter.Web` process started from Visual Studio, so
+  `dotnet build` on the solution fails to copy `AI.Document.Converter.Persistence.dll`. The projects
+  this change touches (Domain, Application, Infrastructure, and both test projects) all build clean
+  with 0 warnings. The Web project does not reference `CreatedDate` except in two test fixtures that
+  assign it, which still compile against `DateTime?`.
+- **This is a behaviour change users will see.** Documents with no embedded date - every `.txt`, and
+  PDFs without an info dictionary, which includes `samples/sample.pdf` - now have no `created_date`
+  in their front matter where they previously had one. That is the intended outcome, but any
+  downstream consumer that requires the field will need to treat it as optional.
+- **No fixture exercises a PDF that *has* a `/CreationDate` end to end.** The parser is proven
+  directly and thoroughly, and the extractor's wiring is proven by the null path, but no committed
+  sample carries a PDF date. Generating one needs `scripts/generate-samples.py` (pymupdf,
+  development-only) and a new committed binary fixture - worth doing if PDF dates ever matter
+  commercially.
+- **Nothing was re-run in the desktop application itself.**
+
+
 ## 2. Not started
 
 **Superseded 2026-09-09.** This section previously read "No SaaS code exists yet beyond the
@@ -1616,8 +1705,7 @@ are already implemented and tested.
    The evidence is in `docs/saas/05-CREDIT-COST-BENCHMARK.md`; the options and their trade-offs are
    set out there. Until it is decided, the constants stay as they are.
 2. ~~**D-05** extract once and fan out~~ - **DONE**, see §1.
-3. **B-08** `createdDate` uses `os.path.getctime`, which on a server is upload time, not authorship
-   time. Prefer embedded document metadata, else omit.
+3. ~~**B-08** `createdDate` uses `os.path.getctime`~~ - **DONE**, see §1.
 4. Real Linux verification of the engine once a container runtime exists (A-03 follow-up). The
    platform guard is proven only by simulation on Windows so far.
 

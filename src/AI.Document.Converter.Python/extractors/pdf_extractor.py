@@ -37,7 +37,7 @@ from extractors.common import (
     ExtractionError,
     check_file_accessible,
     converted_date_iso,
-    file_created_date_iso,
+    pdf_created_date_iso,
     image_placeholder_block,
     normalize_optional_text,
     unextractable_text_block,
@@ -183,6 +183,16 @@ def _author(pdf):
     return normalize_optional_text(author)
 
 
+def _created_date(pdf):
+    # Audit B-08. The info dictionary is optional in PDF and frequently absent
+    # altogether - samples/sample.pdf has no metadata at all - so None here is
+    # an ordinary outcome, not a failure.
+    raw = pdf.metadata.get("CreationDate") if pdf.metadata else None
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8", errors="replace")
+    return pdf_created_date_iso(raw)
+
+
 def extract(file_path):
     check_file_accessible(file_path)
     _guard_openable(file_path)
@@ -226,6 +236,7 @@ def extract(file_path):
 
         page_count = len(pdf.pages)
         author = _author(pdf)
+        created_date = _created_date(pdf)
     finally:
         pdf.close()
 
@@ -274,7 +285,7 @@ def extract(file_path):
     metadata = {
         "sourceFilePath": file_path,
         "fileType": "pdf",
-        "createdDate": file_created_date_iso(file_path),
+        "createdDate": created_date,
         "convertedDate": converted_date_iso(),
         "pageCount": page_count,
         "slideCount": None,

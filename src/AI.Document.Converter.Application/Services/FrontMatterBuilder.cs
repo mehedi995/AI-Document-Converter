@@ -18,7 +18,14 @@ public static class FrontMatterBuilder
 
         builder.Append("source: ").Append(YamlString(Path.GetFileName(metadata.SourceFilePath))).Append('\n');
         builder.Append("file_type: ").Append(metadata.FileType.ToString().ToLowerInvariant()).Append('\n');
-        builder.Append("created_date: ").Append(FormatDate(metadata.CreatedDate)).Append('\n');
+        // Omitted when the source document records no creation date of its own
+        // (audit B-08), on the same "omit rather than invent" rule as author
+        // and the page/slide/sheet counts.
+        if (metadata.CreatedDate is not null)
+        {
+            builder.Append("created_date: ").Append(FormatDate(metadata.CreatedDate.Value)).Append('\n');
+        }
+
         builder.Append("converted_date: ").Append(FormatDate(metadata.ConvertedDate)).Append('\n');
 
         if (metadata.PageCount is not null)
