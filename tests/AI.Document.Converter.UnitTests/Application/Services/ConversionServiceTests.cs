@@ -52,6 +52,124 @@ public class ConversionServiceTests
             .Returns(@"C:\Output\report.md");
     }
 
+    // Audit D-05. The point of the combined path is that the engine runs ONCE,
+    // so the assertion that matters is the call count - a version that
+    // extracted twice would still produce both correct outputs and pass every
+    // other test in this file.
+    [Fact]
+    public async Task ConvertAsync_WithChunkOptions_ExtractsTheDocumentExactlyOnce()
+    {
+        _processor
+            .Setup(p => p.ExtractAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SampleDocument);
+        _chunkGenerator
+            .Setup(g => g.GenerateChunksAsync(
+                It.IsAny<DocumentModel>(), It.IsAny<ChunkOptions>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ChunkGenerationResult { Chunks = [], Warnings = [] });
+
+        await _service.ConvertAsync(
+            @"C:\Source\report.pdf", @"C:\Output", _outputPathResolver.Object,
+            new ChunkOptions { ChunkSizeTokens = 512, OverlapTokens = 50 }, CancellationToken.None);
+
+        _processor.Verify(
+            p => p.ExtractAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // Doing the two operations separately is still supported, and still costs
+    // two extractions - that is the documented trade-off for not holding a
+    // DocumentModel across two independent user actions. Pinned so the
+    // difference between the two paths stays visible.
+    [Fact]
+    public async Task ConvertThenChunkSeparately_ExtractsTwice()
+    {
+        _processor
+            .Setup(p => p.ExtractAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SampleDocument);
+        _chunkGenerator
+            .Setup(g => g.GenerateChunksAsync(
+                It.IsAny<DocumentModel>(), It.IsAny<ChunkOptions>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ChunkGenerationResult { Chunks = [], Warnings = [] });
+
+        await _service.ConvertAsync(
+            @"C:\Source\report.pdf", @"C:\Output", _outputPathResolver.Object, CancellationToken.None);
+        await _service.GenerateChunksAsync(
+            @"C:\Source\report.pdf", @"C:\Output",
+            new ChunkOptions { ChunkSizeTokens = 512, OverlapTokens = 50 }, CancellationToken.None);
+
+        _processor.Verify(
+            p => p.ExtractAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task ConvertAsync_WithChunkOptions_ReportsBothStagesAndBothWarningSources()
+    {
+        var chunkWarning = new ExtractionWarning
+        {
+            Code = WarningCode.TableExceedsChunkSize,
+            Severity = WarningSeverity.Warning,
+            Message = "A table exceeds the chunk size."
+        };
+
+        _processor
+            .Setup(p => p.ExtractAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SampleDocument);
+        _chunkGenerator
+            .Setup(g => g.GenerateChunksAsync(
+                It.IsAny<DocumentModel>(), It.IsAny<ChunkOptions>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ChunkGenerationResult
+            {
+                Chunks =
+                [
+                    new DocumentChunk
+                    {
+                        SequenceNumber = 1,
+                        SourceFileName = "report.md",
+                        Content = "x",
+                        TokenCount = 1,
+                        OverlapTokens = 0
+                    }
+                ],
+                Warnings = [chunkWarning]
+            });
+
+        var result = await _service.ConvertAsync(
+            @"C:\Source\report.pdf", @"C:\Output", _outputPathResolver.Object,
+            new ChunkOptions { ChunkSizeTokens = 512, OverlapTokens = 50 }, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal(PipelineStage.Converted | PipelineStage.Chunked, result.CompletedStages);
+        Assert.Equal(1, result.ChunkCount);
+
+        // A chunking warning must not be lost just because chunking happened
+        // inside the conversion.
+        Assert.Contains(result.Warnings, w => w.Code == WarningCode.TableExceedsChunkSize);
+    }
+
+    // Without chunk options the behaviour is exactly what it was: Markdown
+    // only, no chunk directory, no chunking stage.
+    [Fact]
+    public async Task ConvertAsync_WithoutChunkOptions_DoesNotChunk()
+    {
+        _processor
+            .Setup(p => p.ExtractAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SampleDocument);
+
+        var result = await _service.ConvertAsync(
+            @"C:\Source\report.pdf", @"C:\Output", _outputPathResolver.Object, null,
+            CancellationToken.None);
+
+        Assert.Equal(PipelineStage.Converted, result.CompletedStages);
+
+        _chunkGenerator.Verify(
+            g => g.GenerateChunksAsync(
+                It.IsAny<DocumentModel>(), It.IsAny<ChunkOptions>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
     [Fact]
     public async Task ConvertAsync_HappyPath_ReturnsSuccessWithTokensAndOutputPath()
     {

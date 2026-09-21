@@ -1,6 +1,6 @@
 # IMPLEMENTATION_STATUS — Cloud SaaS Edition
 
-**Last updated:** 2026-09-08
+**Last updated:** 2026-09-22
 **Baseline commit:** `d27e8a9` (desktop v1.0.0)
 **Current phase:** **Phase 2 complete.** All five formats, history, search, reconvert, retention
 and orphan reconciliation. Phase 3 (commercial) is blocked on a business decision, not code.
@@ -1470,6 +1470,80 @@ dotnet build AI.Document.Converter.sln -c Release  -> Build succeeded, 0 warning
 - Nothing exercises summary mode through the SaaS pipeline end to end, because nothing in the SaaS
   pipeline can request it yet.
 
+### Increment: extract once, fan out to both outputs (audit D-05, desktop path)
+
+`GenerateChunksAsync` re-extracts from scratch, spawning a second engine subprocess for a file
+`ConvertAsync` has already parsed. The SaaS worker never had this problem - increment 14 extracts
+once and fans out - but the desktop path still paid twice for anyone who wanted both outputs. This
+closes D-05 for the desktop, which was next-up item 2 in §5.
+
+**What was added.** A `ConvertAsync` overload taking a nullable `ChunkOptions`. When it is supplied,
+a single extraction produces both the Markdown and the chunks. An `AppSettings.GenerateChunksWithConversion`
+flag, a checkbox on the Settings screen, and the wiring in `DashboardViewModel` that turns the flag
+into chunk options for the batch.
+
+**Three design choices worth stating:**
+
+- It does **not** replace `GenerateChunksAsync`. Chunking on its own stays a separate user action
+  (UC-003, matching the Chunk Settings screen's own button), and nothing caches a `DocumentModel`
+  across two user actions. The saving is available only when both outputs are asked for at once -
+  where exactly one document is live at a time, so the memory profile is an ordinary conversion's.
+- **The setting defaults to off.** Turning it on is a choice rather than "Convert All" quietly
+  starting to write a chunks directory because the code was updated.
+- The combined result reports `OutputPath` as the **Markdown**, not the chunk directory (it is the
+  primary output and what the file list's "open output" action points at), `CompletedStages` as
+  `Converted | Chunked` so the batch summary is truthful, and warnings from **both** sources - an
+  oversized-table warning is only discoverable once a chunk size is known.
+
+**4 unit tests.** The one that carries the increment asserts `ExtractAsync` is called `Times.Once`:
+a version that extracted twice would still produce both correct outputs and pass every other test in
+the file. A second test pins the separate convert-then-chunk path at **two** extractions, so the
+difference between the two paths stays visible rather than being assumed away.
+
+**Mutation-tested.**
+
+| Mutation | Result |
+|---|---|
+| Re-extract the document before chunking in the combined path | 1 failed (`ExtractsTheDocumentExactlyOnce`) |
+| Chunking warnings dropped from the merged result | 1 failed (`ReportsBothStagesAndBothWarningSources`) |
+| `PipelineStage.Chunked` dropped from `CompletedStages` | 1 failed (same test) |
+
+**Commands actually run.**
+
+```
+dotnet build AI.Document.Converter.sln -c Release   -> Build succeeded, 0 warnings, 0 errors
+dotnet test tests/AI.Document.Converter.UnitTests        -> 125 passed, 0 failed
+dotnet test tests/AI.Document.Converter.IntegrationTests
+  --filter "Category!=Performance"                       ->  50 passed, 0 failed
+```
+
+**Also repaired here.** Five path literals in `ConversionServiceTests` had been written with a real
+CR+LF inside the verbatim string - the `\r` of `@"C:\Source\report.pdf"` became a carriage return,
+leaving `@"C:\Source` / newline / `eport.pdf"`. It compiled and passed, because those call sites are
+matched with `It.IsAny<string>()`, but the path was wrong and the tests were unreadable. Repaired at
+byte level, CRLF line endings preserved.
+
+**Limitations, stated plainly.**
+
+- **A chunking failure now fails the whole conversion, after the Markdown has already been written.**
+  Verified with a throwaway probe: when the chunk generator throws - which is what `ChunkGenerator`
+  does for a degenerate `overlap >= size` config (C-09) - the combined path returns `Success = false`
+  with an empty `OutputPath`, while the Markdown file is on disk. The batch summary counts it failed
+  and nothing points the user at the file that did get produced. Pre-existing shape of `ExecuteAsync`,
+  newly reachable from conversion. **Left as a decision, not silently patched** - the sensible
+  options are to validate chunk options before doing any work, or to report `Converted` with a
+  chunking warning, and which is right is a product call.
+- **The WPF wiring is untested.** There are no ViewModel tests in this repository at all, so the
+  settings flag → `ChunkOptions` mapping in `DashboardViewModel` and the checkbox binding are
+  verified only by the build and by reading. The grid was checked by hand: 19 row definitions, every
+  `Grid.Row` within range and on a content row.
+- **Not exercised in the running application.** No desktop run was performed; the checkbox has not
+  been clicked.
+- **The Web test project could not be run.** All 206 tests fail at `No database connection configured
+  for tests` in this environment. That is environmental, not a regression - the change touches only
+  Application, Domain and WPF, and no web project calls the new overload (the worker has its own
+  extract-once path).
+
 
 ## 2. Not started
 
@@ -1535,9 +1609,9 @@ are already implemented and tested.
 1. **Decide what to do about the measured ratio mismatch** - a business decision, not a coding one.
    The evidence is in `docs/saas/05-CREDIT-COST-BENCHMARK.md`; the options and their trade-offs are
    set out there. Until it is decided, the constants stay as they are.
-2. **D-05** extract once and fan out. `GenerateChunksAsync` still re-extracts from scratch, spawning
-   a second engine subprocess for a file `ConvertAsync` already parsed - 2x metered compute per
-   chunked conversion, which now costs the customer credits rather than just latency.
+2. ~~**D-05** extract once and fan out~~ - **DONE**, see §1. One open question it raised: a chunking
+   failure now fails the whole conversion even though the Markdown was already written. Decide
+   whether to validate chunk options up front or report `Converted` with a chunking warning.
 3. **B-08** `createdDate` uses `os.path.getctime`, which on a server is upload time, not authorship
    time. Prefer embedded document metadata, else omit.
 4. Real Linux verification of the engine once a container runtime exists (A-03 follow-up). The

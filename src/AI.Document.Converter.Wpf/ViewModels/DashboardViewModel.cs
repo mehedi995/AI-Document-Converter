@@ -237,13 +237,25 @@ public sealed class DashboardViewModel : ViewModelBase
         var outputPathResolver = new OutputPathResolver();
         var itemsByPath = items.ToDictionary(f => f.ImportItem.FilePath);
 
+        // Audit D-05: when the user wants both outputs, ask for both here so
+        // the document is extracted once rather than again on a second button
+        // press.
+        var chunkOptions = settings.GenerateChunksWithConversion
+            ? new ChunkOptions
+            {
+                ChunkSizeTokens = settings.ChunkSizeTokens,
+                OverlapTokens = settings.ChunkOverlapTokens
+            }
+            : null;
+
         await RunBatchAsync(
             itemsByPath.Keys.ToList(),
             (filePath, token) => _conversionService.ConvertAsync(
-                filePath, settings.OutputDirectory, outputPathResolver, token),
+                filePath, settings.OutputDirectory, outputPathResolver, chunkOptions, token),
             settings.MaxParallelism,
             update => ApplyConvertProgress(itemsByPath, update),
-            BuildBatchSummaryMessage("Converted"));
+            BuildBatchSummaryMessage(
+                settings.GenerateChunksWithConversion ? "Converted and chunked" : "Converted"));
     }
 
     private async Task RunChunkBatchAsync(IReadOnlyList<FileConversionViewModel> items, AppSettings settings)

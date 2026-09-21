@@ -40,8 +40,17 @@ public sealed class ConversionService : IConversionService
         string outputDirectory,
         IOutputPathResolver outputPathResolver,
         CancellationToken cancellationToken) =>
+        ConvertAsync(filePath, outputDirectory, outputPathResolver, null, cancellationToken);
+
+    public Task<ConversionResult> ConvertAsync(
+        string filePath,
+        string outputDirectory,
+        IOutputPathResolver outputPathResolver,
+        ChunkOptions? chunkOptions,
+        CancellationToken cancellationToken) =>
         ExecuteAsync("Conversion", filePath, async () =>
         {
+            // The single extraction both outputs are built from (audit D-05).
             var document = await _processorResolver.Resolve(filePath).ExtractAsync(filePath, cancellationToken);
 
             var markdown = _markdownGenerator.Generate(document);
@@ -51,14 +60,42 @@ public sealed class ConversionService : IConversionService
             var outputPath = outputPathResolver.ResolveMarkdownOutputPath(filePath, outputDirectory);
             await _markdownFileWriter.WriteAsync(outputPath, markdown, cancellationToken);
 
+            if (chunkOptions is null)
+            {
+                return new ConversionResult
+                {
+                    Success = true,
+                    OutputPath = outputPath,
+                    Tokens = tokens,
+                    CompletedStages = PipelineStage.Converted,
+                    Metadata = document.Metadata,
+                    Warnings = document.Warnings
+                };
+            }
+
+            var baseName = Path.GetFileNameWithoutExtension(filePath);
+            var chunkResult = await _chunkGenerator.GenerateChunksAsync(
+                document, chunkOptions, $"{baseName}.md", cancellationToken);
+
+            var chunksDirectory = Path.Combine(outputDirectory, "chunks", baseName);
+            await _chunkFileWriter.WriteAsync(chunksDirectory, chunkResult.Chunks, cancellationToken);
+
             return new ConversionResult
             {
                 Success = true,
+                // The Markdown, not the chunk directory: it is the primary
+                // output, and the file list's "open output" action points here.
                 OutputPath = outputPath,
                 Tokens = tokens,
-                CompletedStages = PipelineStage.Converted,
+                ChunkCount = chunkResult.Chunks.Count,
+                // Both stages really did complete, and the batch summary reads
+                // this to decide what to report.
+                CompletedStages = PipelineStage.Converted | PipelineStage.Chunked,
                 Metadata = document.Metadata,
-                Warnings = document.Warnings
+                // Extraction warnings AND chunking warnings, same as the
+                // standalone chunk path - an oversized table is only
+                // discoverable once a chunk size is known.
+                Warnings = [.. document.Warnings, .. chunkResult.Warnings]
             };
         });
 

@@ -12,6 +12,15 @@ public sealed class AppSettings
 
     public int ChunkOverlapTokens { get; init; } = 50;
 
+    // Audit D-05. When on, "Convert All" produces the chunks in the same pass
+    // as the Markdown, from one extraction instead of two.
+    //
+    // Defaults to OFF so that turning it on is a choice rather than a silent
+    // change to what a button does: today "Convert All" writes Markdown, and
+    // having it start writing a chunks directory as well because the code was
+    // updated would be a surprise.
+    public bool GenerateChunksWithConversion { get; init; }
+
     public string PythonExecutablePath { get; init; } = string.Empty;
 
     public string LogDirectory { get; init; } = string.Empty;

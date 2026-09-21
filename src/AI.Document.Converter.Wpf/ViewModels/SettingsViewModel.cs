@@ -18,6 +18,7 @@ public sealed class SettingsViewModel : ViewModelBase
     private string _pythonExecutablePath = string.Empty;
     private int _chunkSizeTokens;
     private int _chunkOverlapTokens;
+    private bool _generateChunksWithConversion;
     private int _maxParallelism;
     private int _maxBatchFiles;
     private long _maxBatchSizeBytes;
@@ -58,6 +59,12 @@ public sealed class SettingsViewModel : ViewModelBase
     {
         get => _chunkOverlapTokens;
         set => SetProperty(ref _chunkOverlapTokens, value);
+    }
+
+    public bool GenerateChunksWithConversion
+    {
+        get => _generateChunksWithConversion;
+        set => SetProperty(ref _generateChunksWithConversion, value);
     }
 
     public int MaxParallelism
@@ -111,6 +118,7 @@ public sealed class SettingsViewModel : ViewModelBase
             PythonEngineTimeoutSeconds = current.PythonEngineTimeoutSeconds,
             ChunkSizeTokens = ChunkSizeTokens,
             ChunkOverlapTokens = ChunkOverlapTokens,
+            GenerateChunksWithConversion = GenerateChunksWithConversion,
             MaxParallelism = MaxParallelism,
             MaxBatchFiles = MaxBatchFiles,
             MaxBatchSizeBytes = MaxBatchSizeBytes,
@@ -130,6 +138,7 @@ public sealed class SettingsViewModel : ViewModelBase
         PythonExecutablePath = settings.PythonExecutablePath;
         ChunkSizeTokens = settings.ChunkSizeTokens;
         ChunkOverlapTokens = settings.ChunkOverlapTokens;
+        GenerateChunksWithConversion = settings.GenerateChunksWithConversion;
         MaxParallelism = settings.MaxParallelism;
         MaxBatchFiles = settings.MaxBatchFiles;
         MaxBatchSizeBytes = settings.MaxBatchSizeBytes;

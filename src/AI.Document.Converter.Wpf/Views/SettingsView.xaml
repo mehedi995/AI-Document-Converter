@@ -24,6 +24,8 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="8" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="8" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="16" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="8" />
@@ -51,10 +53,17 @@
         <TextBlock Grid.Row="12" Grid.Column="0" Text="Max batch files" VerticalAlignment="Center" />
         <TextBox Grid.Row="12" Grid.Column="1" Text="{Binding MaxBatchFiles, UpdateSourceTrigger=PropertyChanged}" />
 
-        <Button Grid.Row="14" Grid.Column="1" Content="Save" HorizontalAlignment="Left" Padding="16,4"
+        <!-- Audit D-05: both outputs from one extraction, which is roughly half
+             the engine time. Off by default, so enabling it is a choice rather
+             than "Convert All" quietly starting to write a chunks folder. -->
+        <CheckBox Grid.Row="14" Grid.Column="1" VerticalAlignment="Center"
+                  Content="Generate chunks during conversion (one pass instead of two)"
+                  IsChecked="{Binding GenerateChunksWithConversion}" />
+
+        <Button Grid.Row="16" Grid.Column="1" Content="Save" HorizontalAlignment="Left" Padding="16,4"
                 Command="{Binding SaveCommand}" />
 
-        <TextBlock Grid.Row="16" Grid.Column="1" Text="{Binding StatusMessage}" TextWrapping="Wrap">
+        <TextBlock Grid.Row="18" Grid.Column="1" Text="{Binding StatusMessage}" TextWrapping="Wrap">
             <TextBlock.Style>
                 <Style TargetType="TextBlock">
                     <Setter Property="Foreground" Value="Green" />
